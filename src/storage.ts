@@ -66,6 +66,19 @@ export function createJsonPulseStateStore(statePath: string): PulseStateStore {
   };
 }
 
+export function createMemoryPulseStateStore(initialState: PulseState = createEmptyPulseState()): PulseStateStore {
+  let state = parsePulseState(initialState);
+
+  return {
+    read() {
+      return parsePulseState(JSON.parse(JSON.stringify(state)));
+    },
+    write(nextState) {
+      state = parsePulseState(nextState);
+    },
+  };
+}
+
 export function getPulseEnvConfig(env: Record<string, string | undefined>): PulseEnvConfig {
   const config: PulseEnvConfig = {
     secrets: pickEnv(env, secretEnvKeys),

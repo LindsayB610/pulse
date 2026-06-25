@@ -24,7 +24,14 @@ export {
   markOccurrenceDue,
   parsePulseDefinitions,
 } from "./model.js";
-export { createEmptyPulseState, createJsonPulseStateStore, getPulseEnvConfig, loadPrivatePulseConfig } from "./storage.js";
+export { createPollingRunner, runPulseRunnerTick } from "./runner.js";
+export {
+  createEmptyPulseState,
+  createJsonPulseStateStore,
+  createMemoryPulseStateStore,
+  getPulseEnvConfig,
+  loadPrivatePulseConfig,
+} from "./storage.js";
 
 export type {
   DayOfWeek,
@@ -40,3 +47,11 @@ export type {
 } from "./model.js";
 
 export type { PrivatePulseConfig, PulseEnvConfig, PulseState, PulseStateStore } from "./storage.js";
+export type {
+  NotificationDispatcher,
+  NotificationInput,
+  NotificationResult,
+  PulsePollingRunnerInput,
+  PulseRunnerTickInput,
+  PulseRunnerTickResult,
+} from "./runner.js";

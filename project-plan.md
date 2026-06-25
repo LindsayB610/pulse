@@ -22,7 +22,7 @@ The product promise is:
 | 1 | Complete | Core pulse model | Repeating pulse definitions generate due occurrences with durable state and completion history. |
 | 2 | Complete | No-dismiss state machine | A due occurrence can only leave the active notification loop by being marked Done. |
 | 3 | Complete | Local private data contract | Real pulses, secrets, delivery settings, and history live in private local config outside the public repo. |
-| 4 | Not started | Runner loop | A headless runner detects due occurrences, sends notifications, retries, and prevents duplicate sends. |
+| 4 | Complete | Runner loop | A headless runner detects due occurrences, sends notifications, retries, and prevents duplicate sends. |
 | 5 | Not started | Notification adapters | Email and one phone-friendly channel are implemented behind a stable adapter interface. |
 | 6 | Not started | Self-hosting docs | Users can deploy their own private cloud runner with copyable setup, env, verification, and operations docs. |
 | 7 | Not started | Minimal management UI | A tiny local/web UI can list pulses, show due state, mark Done, and inspect completion history. |

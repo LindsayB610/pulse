@@ -5,6 +5,9 @@
   "description": "Persistent recurring obligations that keep notifying until done.",
   "type": "module",
   "license": "MIT",
+  "bin": {
+    "pulse-runner": "./bin/pulse-runner.mjs"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "docs:check": "node scripts/check-doc-links.mjs",
