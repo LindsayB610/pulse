@@ -1,0 +1,21 @@
+node_modules/
+dist/
+coverage/
+
+# Local/private runner configuration
+.env
+.env.*
+!.env.example
+pulses.yaml
+pulses.yml
+state/
+data/
+backups/
+logs/
+*.sqlite
+*.sqlite3
+*.db
+
+# OS/editor noise
+.DS_Store
+*.swp

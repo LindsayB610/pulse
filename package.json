@@ -1,0 +1,26 @@
+{
+  "name": "@marketing-builds/pulse",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Persistent recurring obligations that keep notifying until done.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "docs:check": "node scripts/check-doc-links.mjs",
+    "format:check": "node scripts/check-format.mjs",
+    "lint": "node scripts/lint-public-boundary.mjs",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.1",
+    "typescript": "^5.5.4"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "yaml": "^2.9.0"
+  }
+}

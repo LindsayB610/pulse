@@ -1,0 +1,17 @@
+# Public demo pulse configuration.
+# Copy to a private pulses.yaml outside git before adding real obligations.
+
+pulses:
+  - id: weekly-demo-check
+    title: Weekly demo check
+    active: true
+    schedule:
+      type: weekly
+      daysOfWeek:
+        - sunday
+      time: "09:00"
+      timezone: America/Los_Angeles
+    notificationPolicy:
+      channels:
+        - console
+      repeatEveryMinutes: 30
