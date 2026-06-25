@@ -5,9 +5,19 @@ const root = new URL("../", import.meta.url).pathname;
 const publicFiles = [
   ".env.example",
   "README.md",
+  "docs/backup-and-restore.md",
+  "docs/deploy-runner.md",
+  "docs/env-vars.md",
+  "docs/notification-adapters.md",
+  "docs/operations.md",
   "docs/private-config.md",
+  "docs/quickstart-local-demo.md",
+  "docs/migrations.md",
+  "docs/release-checklist.md",
   "docs/security-and-privacy.md",
+  "docs/verify-runner.md",
   "examples/README.md",
+  "examples/forced-test-pulse.yaml",
   "pulses.example.yaml",
 ];
 const blockedPatterns = [/Mounjaro/i, /Lucas/i, /\bmedication\b/i, /\bshot\b/i, /555-\d{4}/, /@gmail\.com/i];

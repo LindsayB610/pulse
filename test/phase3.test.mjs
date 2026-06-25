@@ -56,17 +56,17 @@ test("secrets are read from env and not from committed example files", () => {
   const env = {
     PULSE_CONFIG_PATH: "/private/pulse/pulses.yaml",
     PULSE_STATE_PATH: "/private/pulse/state.json",
-    PULSE_EMAIL_SMTP_PASSWORD: "runner-secret",
-    PULSE_EMAIL_TO: "private@example.test",
+    PULSE_TWILIO_AUTH_TOKEN: "runner-secret",
+    PULSE_SMS_TO: "+15557654321",
   };
   const config = getPulseEnvConfig(env);
   const exampleEnv = readFileSync(join(root, ".env.example"), "utf8");
   const examplePulses = readFileSync(join(root, "pulses.example.yaml"), "utf8");
 
-  assert.equal(config.secrets.PULSE_EMAIL_SMTP_PASSWORD, "runner-secret");
-  assert.equal(config.recipients.PULSE_EMAIL_TO, "private@example.test");
-  assert.doesNotMatch(exampleEnv, /runner-secret|private@example\.test/);
-  assert.doesNotMatch(examplePulses, /runner-secret|private@example\.test/);
+  assert.equal(config.secrets.PULSE_TWILIO_AUTH_TOKEN, "runner-secret");
+  assert.equal(config.recipients.PULSE_SMS_TO, "+15557654321");
+  assert.doesNotMatch(exampleEnv, /runner-secret|\+15557654321/);
+  assert.doesNotMatch(examplePulses, /runner-secret|\+15557654321/);
 });
 
 test("state write/read round trips occurrences and events", () => {

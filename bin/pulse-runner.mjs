@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import {
+  createNotificationDispatcherFromEnv,
   createPollingRunner,
   createJsonPulseStateStore,
   getPulseEnvConfig,
@@ -16,17 +17,14 @@ if (!env.configPath || !env.statePath) {
 
 const config = loadPrivatePulseConfig(env.configPath);
 const stateStore = createJsonPulseStateStore(env.statePath);
-const notifier = {
-  send(input) {
-    console.log(`[pulse] ${input.channel}: ${input.pulse.title} due at ${input.occurrence.dueAt}`);
-    return { ok: true };
-  },
-};
+const notifier = createNotificationDispatcherFromEnv(process.env);
+const redactValues = Object.values(env.secrets);
 const tickInput = {
   now: new Date(),
   pulses: config.pulses,
   stateStore,
   notifier,
+  redactValues,
 };
 
 if (process.argv.includes("--watch")) {
@@ -35,6 +33,7 @@ if (process.argv.includes("--watch")) {
     pulses: config.pulses,
     stateStore,
     notifier,
+    redactValues,
     intervalMs,
   });
 

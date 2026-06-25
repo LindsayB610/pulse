@@ -8,12 +8,15 @@ const files = [
   "examples/README.md",
   "docs/quickstart-local-demo.md",
   "docs/private-config.md",
+  "docs/env-vars.md",
   "docs/deploy-runner.md",
   "docs/notification-adapters.md",
   "docs/verify-runner.md",
   "docs/operations.md",
   "docs/security-and-privacy.md",
   "docs/backup-and-restore.md",
+  "docs/migrations.md",
+  "docs/release-checklist.md",
 ];
 
 const linkPattern = /\[[^\]]+\]\(([^)]+)\)/g;

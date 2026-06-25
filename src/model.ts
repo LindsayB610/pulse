@@ -73,6 +73,7 @@ export type PulseEvent = {
 
 export type GenerateOccurrenceOptions = {
   after: Date;
+  includeMissed?: boolean;
   existingOccurrences?: PulseOccurrence[];
 };
 
@@ -115,14 +116,19 @@ export function generateNextOccurrence(
     return null;
   }
 
-  const nextDueAt = nextWeeklyDueAt(
+  const existingOccurrencesForPulse =
+    options.existingOccurrences?.filter((occurrence) => occurrence.pulseId === pulse.id) ?? [];
+  const existingOccurrenceIds = new Set(
+    existingOccurrencesForPulse.map((occurrence) => occurrence.id),
+  );
+  const missedDueAt =
+    options.includeMissed === true
+      ? missedWeeklyDueAt(pulse.schedule, options.after, existingOccurrencesForPulse, existingOccurrenceIds, pulse.id)
+      : undefined;
+  const nextDueAt = missedDueAt ?? nextFutureWeeklyDueAt(
     pulse.schedule,
     options.after,
-    new Set(
-      options.existingOccurrences
-        ?.filter((occurrence) => occurrence.pulseId === pulse.id)
-        .map((occurrence) => occurrence.id) ?? [],
-    ),
+    existingOccurrenceIds,
     pulse.id,
   );
   const dueAt = nextDueAt.toISOString();
@@ -317,7 +323,7 @@ function assertValidTimezone(timezone: string): void {
   new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format(new Date());
 }
 
-function nextWeeklyDueAt(
+function nextFutureWeeklyDueAt(
   schedule: WeeklyPulseSchedule,
   after: Date,
   existingOccurrenceIds: Set<string>,
@@ -360,6 +366,60 @@ function nextWeeklyDueAt(
   }
 
   throw new Error("Unable to generate next weekly occurrence.");
+}
+
+function missedWeeklyDueAt(
+  schedule: WeeklyPulseSchedule,
+  after: Date,
+  existingOccurrencesForPulse: PulseOccurrence[],
+  existingOccurrenceIds: Set<string>,
+  pulseId: string,
+): Date | undefined {
+  if (existingOccurrencesForPulse.length === 0) {
+    return sameDayMissedWeeklyDueAt(schedule, after, pulseId, existingOccurrenceIds);
+  }
+
+  const latestDueAt = existingOccurrencesForPulse
+    .map((occurrence) => Date.parse(occurrence.dueAt))
+    .filter(Number.isFinite)
+    .sort((a, b) => b - a)[0];
+  if (latestDueAt === undefined) {
+    return undefined;
+  }
+
+  const candidate = nextFutureWeeklyDueAt(schedule, new Date(latestDueAt), existingOccurrenceIds, pulseId);
+  return candidate.getTime() <= after.getTime() ? candidate : undefined;
+}
+
+function sameDayMissedWeeklyDueAt(
+  schedule: WeeklyPulseSchedule,
+  after: Date,
+  pulseId: string,
+  existingOccurrenceIds: Set<string>,
+): Date | undefined {
+  const afterParts = zonedParts(after, schedule.timezone);
+  const [hour, minute] = schedule.time.split(":").map(Number);
+  const scheduledDayIndexes = [...new Set(schedule.daysOfWeek.map((day) => daysOfWeek.indexOf(day)))]
+    .sort((a, b) => a - b);
+
+  if (!scheduledDayIndexes.includes(dayOfWeekForLocalDate(afterParts))) {
+    return undefined;
+  }
+
+  const candidate = zonedLocalTimeToUtc({
+    year: afterParts.year,
+    month: afterParts.month,
+    day: afterParts.day,
+    hour,
+    minute,
+    second: 0,
+    millisecond: 0,
+    timezone: schedule.timezone,
+  });
+  const dueAt = candidate.toISOString();
+  return candidate.getTime() <= after.getTime() && !existingOccurrenceIds.has(occurrenceId(pulseId, dueAt))
+    ? candidate
+    : undefined;
 }
 
 function occurrenceId(pulseId: string, dueAt: string): string {

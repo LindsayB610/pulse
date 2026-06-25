@@ -1,0 +1,17 @@
+# Public-safe forced test pulse.
+# Copy this to a private path and change the day/time to a few minutes ahead.
+
+pulses:
+  - id: forced-test-check
+    title: Forced test check
+    active: true
+    schedule:
+      type: weekly
+      daysOfWeek:
+        - sunday
+      time: "09:00"
+      timezone: America/Los_Angeles
+    notificationPolicy:
+      channels:
+        - console
+      repeatEveryMinutes: 2

@@ -6,7 +6,10 @@
   "type": "module",
   "license": "MIT",
   "bin": {
-    "pulse-runner": "./bin/pulse-runner.mjs"
+    "pulse-done": "./bin/pulse-done.mjs",
+    "pulse-runner": "./bin/pulse-runner.mjs",
+    "pulse-state": "./bin/pulse-state.mjs",
+    "pulse-ui": "./bin/pulse-ui.mjs"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

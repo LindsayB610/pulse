@@ -53,7 +53,7 @@ test("public docs explain the private runner boundary", () => {
 test("example env keeps credentials blank and points at public demo config", () => {
   const env = read(".env.example");
   assert.match(env, /PULSE_CONFIG_PATH=\.\/pulses\.example\.yaml/);
-  assert.match(env, /PULSE_EMAIL_SMTP_PASSWORD=\n/);
+  assert.match(env, /PULSE_TWILIO_AUTH_TOKEN=\n/);
   assert.doesNotMatch(env, /Mounjaro|Lucas|medication|555-|@gmail\.com/i);
 });
 

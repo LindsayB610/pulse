@@ -1,0 +1,14 @@
+services:
+  pulse:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../private/.env
+    environment:
+      PULSE_CONFIG_PATH: /pulse/private/pulses.yaml
+      PULSE_STATE_PATH: /pulse/private/state.json
+      PULSE_NOTIFICATION_CHANNEL: sms
+    volumes:
+      - ../private:/pulse/private

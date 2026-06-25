@@ -23,11 +23,11 @@ The product promise is:
 | 2 | Complete | No-dismiss state machine | A due occurrence can only leave the active notification loop by being marked Done. |
 | 3 | Complete | Local private data contract | Real pulses, secrets, delivery settings, and history live in private local config outside the public repo. |
 | 4 | Complete | Runner loop | A headless runner detects due occurrences, sends notifications, retries, and prevents duplicate sends. |
-| 5 | Not started | Notification adapters | Email and one phone-friendly channel are implemented behind a stable adapter interface. |
-| 6 | Not started | Self-hosting docs | Users can deploy their own private cloud runner with copyable setup, env, verification, and operations docs. |
-| 7 | Not started | Minimal management UI | A tiny local/web UI can list pulses, show due state, mark Done, and inspect completion history. |
-| 8 | Not started | Workshop integration | Pulse can optionally appear as a Workshop tool while keeping the public Pulse repo as source of truth. |
-| 9 | Not started | Release hardening | Backup, restore, migrations, security review, and end-to-end acceptance gates are documented and tested. |
+| 5 | Complete | Notification adapters | Twilio SMS and console notification adapters are implemented behind a stable adapter interface. |
+| 6 | Complete | Self-hosting docs | Users can deploy their own private cloud runner with copyable setup, env, verification, and operations docs. |
+| 7 | Complete | Minimal management UI | A tiny local/web UI can list pulses, show due state, mark Done, and inspect completion history. |
+| 8 | Complete | Workshop integration | Pulse can optionally appear as a Workshop tool while keeping the public Pulse repo as source of truth. |
+| 9 | Complete | Release hardening | Backup, restore, migrations, security review, and end-to-end acceptance gates are documented and tested. |
 
 ## TDD Methodology
 
@@ -193,7 +193,7 @@ pulses:
       time: "09:00"
       timezone: America/Los_Angeles
     notificationPolicy:
-      channels: [email]
+      channels: [sms]
       repeatEveryMinutes: 30
 ```
 
@@ -362,13 +362,9 @@ type NotificationAdapter = {
 MVP adapters:
 
 - console adapter for tests and local demo
-- email adapter for practical self-hosting
+- Twilio SMS adapter for practical phone delivery
 
-Strong candidate next adapter:
-
-- SMS via Twilio
-
-Phone-friendly delivery matters, but the first adapter should be selected based on setup clarity and reliable docs.
+Phone-friendly delivery matters because Pulse must reach the user where they will actually notice it.
 
 ## Minimal UI
 
@@ -605,21 +601,21 @@ Send real notifications through documented adapters without coupling them to cor
 TDD entry gate:
 
 - Write adapter interface tests with a fake adapter first.
-- Write mocked email transport tests before implementing the email adapter.
+- Write mocked Twilio transport tests before implementing the SMS adapter.
 - Write failure logging and retry tests before wiring adapters into the runner.
 
 Deliverables:
 
 - notification adapter interface
 - console adapter
-- email adapter
+- Twilio SMS adapter
 - adapter result logging
 - adapter setup docs
 
 Required tests:
 
 - console adapter records expected payload
-- email adapter can be tested with safe mocked transport
+- Twilio SMS adapter can be tested with safe mocked transport
 - adapter failures are recorded and retried according to policy
 - notification payload avoids leaking secrets in logs
 
@@ -663,6 +659,8 @@ Acceptance:
 
 ## Phase 7: Minimal Management UI
 
+Status: Complete.
+
 Goal:
 
 Give users a small interface for due state, completion, and history.
@@ -675,26 +673,29 @@ TDD entry gate:
 
 Deliverables:
 
-- active occurrence view
-- upcoming occurrence view
-- recent history view
-- Done action
+- active occurrence view in `renderPulseManagementPage`
+- upcoming occurrence view in `renderPulseManagementPage`
+- recent history view in `renderPulseManagementPage`
+- Done action through `createPulseUiServer`
 - optional completion note
 - runner health display
+- `bin/pulse-ui.mjs` local UI command
 
 Required tests:
 
-- due occurrence appears
-- Done action records completion
-- completed occurrence moves to history
-- notification state shows last attempt
-- UI does not expose snooze or dismiss actions
+- due occurrence appears in `test/phase7.test.mjs`
+- Done action records completion in `test/phase7.test.mjs`
+- completed occurrence moves to history in `test/phase7.test.mjs`
+- notification state shows last attempt in `test/phase7.test.mjs`
+- UI does not expose snooze or dismiss actions in `test/phase7.test.mjs`
 
 Acceptance:
 
-- The core loop is operable without editing state by hand.
+- The core loop is operable without editing state by hand through `node bin/pulse-ui.mjs`.
 
 ## Phase 8: Workshop Integration
+
+Status: Complete.
 
 Goal:
 
@@ -708,24 +709,26 @@ TDD entry gate:
 
 Deliverables:
 
-- Workshop tool registry entry
-- Pulse tool view
-- docs link
+- Workshop tool registry entry in `workshop/apps/marketing-builds-desktop/src/tool-registry/tools.ts`
+- Pulse tool view in `workshop/apps/marketing-builds-desktop/src/tools/pulse/PulseTool.tsx`
+- packaged docs link in `workshop/apps/marketing-builds-desktop/public/docs/tools/pulse.md`
 - local runner status panel
-- local config path selector if appropriate
+- local config path selector prompt through Workshop's existing tool workspace menu
 
 Required tests:
 
-- Pulse appears in Workshop launcher
-- Pulse routes switch correctly
-- Pulse docs link opens packaged docs
-- Pulse tool does not read other Workshop tool data roots
+- Pulse appears in Workshop launcher in `workshop/apps/marketing-builds-desktop/src/App.test.tsx`
+- Pulse routes switch correctly in `workshop/apps/marketing-builds-desktop/src/app-shell/WorkbenchShell.test.tsx`
+- Pulse docs link opens packaged docs in `workshop/apps/marketing-builds-desktop/src/tool-registry/tools.test.ts`
+- Pulse tool does not read other Workshop tool data roots in `workshop/apps/marketing-builds-desktop/src/tool-registry/tools.test.ts`
 
 Acceptance:
 
-- Workshop can host Pulse as a tool, while Pulse remains a separate public repo and self-hosted runner product.
+- Workshop hosts Pulse as an external tool shell, while Pulse remains a separate public repo and self-hosted runner product.
 
 ## Phase 9: Release Hardening
+
+Status: Complete.
 
 Goal:
 
@@ -780,7 +783,6 @@ The MVP exists when this scenario passes end to end:
 ## Open Product Questions
 
 - Should completion require only a Done tap, or should sensitive pulses optionally require a note?
-- Should the first real notification adapter be email, SMS, Pushover, or another phone-friendly channel?
 - Should the runner expose a tiny authenticated web UI, a CLI-only Done command, or both?
 - Should private state use JSON first for simplicity or SQLite first for durability?
 - Should missed offline windows send one catch-up notification or resume the full repeat cadence immediately?

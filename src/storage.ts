@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 
 import { loadPulseDefinitionsFromYaml, type PulseDefinition, type PulseEvent, type PulseOccurrence } from "./model.js";
 
@@ -19,6 +19,22 @@ export type PulseStateStore = {
   write(state: PulseState): void;
 };
 
+export type PulseBackupInput = {
+  statePath: string;
+  backupDir: string;
+  now?: Date;
+};
+
+export type PulseBackupResult = {
+  path: string;
+  state: PulseState;
+};
+
+export type PulseRestoreInput = {
+  backupPath: string;
+  statePath: string;
+};
+
 export type PulseEnvConfig = {
   configPath?: string;
   statePath?: string;
@@ -27,8 +43,8 @@ export type PulseEnvConfig = {
   recipients: Record<string, string>;
 };
 
-const secretEnvKeys = ["PULSE_EMAIL_SMTP_PASSWORD"];
-const recipientEnvKeys = ["PULSE_EMAIL_TO"];
+const secretEnvKeys = ["PULSE_TWILIO_AUTH_TOKEN"];
+const recipientEnvKeys = ["PULSE_SMS_TO"];
 
 export function loadPrivatePulseConfig(configPath: string): PrivatePulseConfig {
   const resolvedPath = resolve(configPath);
@@ -57,7 +73,7 @@ export function createJsonPulseStateStore(statePath: string): PulseStateStore {
         return createEmptyPulseState();
       }
 
-      return parsePulseState(JSON.parse(readFileSync(resolvedPath, "utf8")));
+      return migratePulseState(JSON.parse(readFileSync(resolvedPath, "utf8")));
     },
     write(state) {
       mkdirSync(dirname(resolvedPath), { recursive: true });
@@ -79,6 +95,68 @@ export function createMemoryPulseStateStore(initialState: PulseState = createEmp
   };
 }
 
+export function migratePulseState(input: unknown): PulseState {
+  if (!isRecord(input)) {
+    throw new Error("Pulse state must be an object.");
+  }
+
+  if (input.version === undefined) {
+    return parsePulseState({
+      ...input,
+      version: 1,
+    });
+  }
+
+  return parsePulseState(input);
+}
+
+export function exportPulseState(stateStore: PulseStateStore): string {
+  return `${JSON.stringify(stateStore.read(), null, 2)}\n`;
+}
+
+export function importPulseState(stateStore: PulseStateStore, jsonText: string): PulseState {
+  const state = migratePulseState(JSON.parse(jsonText));
+  stateStore.write(state);
+  return state;
+}
+
+export function createPulseBackup(input: PulseBackupInput): PulseBackupResult {
+  const resolvedStatePath = resolve(input.statePath);
+  const resolvedBackupDir = resolve(input.backupDir);
+  const state = migratePulseState(JSON.parse(readFileSync(resolvedStatePath, "utf8")));
+  const backupPath = join(resolvedBackupDir, `state.${backupTimestamp(input.now ?? new Date())}.json`);
+
+  mkdirSync(resolvedBackupDir, { recursive: true });
+  writeFileSync(backupPath, `${JSON.stringify(state, null, 2)}\n`);
+
+  return {
+    path: backupPath,
+    state,
+  };
+}
+
+export function restorePulseBackup(input: PulseRestoreInput): PulseState {
+  const resolvedBackupPath = resolve(input.backupPath);
+  const resolvedStatePath = resolve(input.statePath);
+  const state = migratePulseState(JSON.parse(readFileSync(resolvedBackupPath, "utf8")));
+
+  mkdirSync(dirname(resolvedStatePath), { recursive: true });
+  writeFileSync(resolvedStatePath, `${JSON.stringify(state, null, 2)}\n`);
+
+  return state;
+}
+
+export function copyPrivateFileBackup(filePath: string, backupDir: string, now: Date = new Date()): string {
+  const resolvedFilePath = resolve(filePath);
+  const resolvedBackupDir = resolve(backupDir);
+  const backupPath = join(resolvedBackupDir, `${basename(resolvedFilePath)}.${backupTimestamp(now)}`);
+
+  mkdirSync(resolvedBackupDir, { recursive: true });
+  copyFileSync(resolvedFilePath, backupPath);
+
+  return backupPath;
+}
+
 export function getPulseEnvConfig(env: Record<string, string | undefined>): PulseEnvConfig {
   const config: PulseEnvConfig = {
     secrets: pickEnv(env, secretEnvKeys),
@@ -98,7 +176,7 @@ export function getPulseEnvConfig(env: Record<string, string | undefined>): Puls
   return config;
 }
 
-function parsePulseState(input: unknown): PulseState {
+export function parsePulseState(input: unknown): PulseState {
   if (!isRecord(input)) {
     throw new Error("Pulse state must be an object.");
   }
@@ -226,4 +304,8 @@ function requiredString(input: Record<string, unknown>, key: string): string {
 
 function isRecord(input: unknown): input is Record<string, unknown> {
   return typeof input === "object" && input !== null && !Array.isArray(input);
+}
+
+function backupTimestamp(date: Date): string {
+  return date.toISOString().replaceAll("-", "").replaceAll(":", "").replace(".000", "");
 }

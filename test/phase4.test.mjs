@@ -165,6 +165,48 @@ test("runner catches overdue scheduled occurrences after downtime", async () => 
   assert.equal(notifier.sends.length, 1);
 });
 
+test("runner creates and notifies a missed occurrence after empty-state downtime", async () => {
+  const store = createMemoryPulseStateStore(createEmptyPulseState());
+  const notifier = createFakeNotifier();
+
+  await runPulseRunnerTick({
+    now: new Date("2026-06-28T17:00:00.000Z"),
+    pulses: [weeklyPulse],
+    stateStore: store,
+    notifier,
+  });
+
+  const restored = store.read();
+  assert.equal(restored.occurrences[0].id, "weekly-demo-check:2026-06-28T16:00:00.000Z");
+  assert.equal(restored.occurrences[0].state, "due");
+  assert.equal(notifier.sends.length, 1);
+});
+
+test("runner creates the next missed occurrence after prior completion history", async () => {
+  const state = createEmptyPulseState();
+  state.occurrences.push({
+    id: "weekly-demo-check:2026-06-21T16:00:00.000Z",
+    pulseId: "weekly-demo-check",
+    dueAt: "2026-06-21T16:00:00.000Z",
+    state: "done",
+    completedAt: "2026-06-21T16:05:00.000Z",
+  });
+  const store = createMemoryPulseStateStore(state);
+  const notifier = createFakeNotifier();
+
+  await runPulseRunnerTick({
+    now: new Date("2026-06-28T17:00:00.000Z"),
+    pulses: [weeklyPulse],
+    stateStore: store,
+    notifier,
+  });
+
+  const restored = store.read();
+  assert.equal(restored.occurrences[1].id, "weekly-demo-check:2026-06-28T16:00:00.000Z");
+  assert.equal(restored.occurrences[1].state, "due");
+  assert.equal(notifier.sends.length, 1);
+});
+
 test("runner logs failed notification attempts and persists due state", async () => {
   const state = createEmptyPulseState();
   state.occurrences.push({

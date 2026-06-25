@@ -29,6 +29,7 @@ export type PulseRunnerTickInput = {
   pulses: PulseDefinition[];
   stateStore: PulseStateStore;
   notifier: NotificationDispatcher;
+  redactValues?: string[];
 };
 
 export type PulsePollingRunnerInput = Omit<PulseRunnerTickInput, "now"> & {
@@ -57,6 +58,7 @@ export async function runPulseRunnerTick(input: PulseRunnerTickInput): Promise<P
     const nextOccurrence = generateNextOccurrence(pulse, {
       after: input.now,
       existingOccurrences: state.occurrences,
+      includeMissed: true,
     });
     if (nextOccurrence) {
       state.occurrences.push(nextOccurrence);
@@ -113,6 +115,7 @@ export async function runPulseRunnerTick(input: PulseRunnerTickInput): Promise<P
         occurrence,
         now: input.now,
       });
+      const detail = redactNotificationDetail(sendResult.detail ?? "", input.redactValues ?? []);
       state.events.push(
         createPulseEvent({
           pulseId: pulse.id,
@@ -122,7 +125,7 @@ export async function runPulseRunnerTick(input: PulseRunnerTickInput): Promise<P
           metadata: {
             channel,
             ok: sendResult.ok,
-            detail: sendResult.detail ?? "",
+            detail,
           },
         }),
       );
@@ -169,6 +172,12 @@ async function sendNotification(
       detail: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+export function redactNotificationDetail(detail: string, redactValues: string[] = []): string {
+  return redactValues
+    .filter((value) => value !== "")
+    .reduce((redacted, value) => redacted.split(value).join("[redacted]"), detail);
 }
 
 function shouldSendNotification(
