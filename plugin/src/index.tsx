@@ -33,14 +33,23 @@ export function WorkshopToolView({ activeRouteId = "reminders", workspaceRoot, r
 }): React.ReactElement {
   const [root, setRoot] = useState(workspaceRoot ?? "");
   const [request, setRequest] = useState<SecureServiceRequester | null>(null);
-  const [connectionStatus, setConnectionStatus] = useState("");
+  const [connectionStatus, setConnectionStatus] = useState("Choose the private Pulse folder to connect your reminders.");
   useEffect(() => {
+    setRoot(workspaceRoot ?? "");
+    setRequest(null);
     if (!workspaceRoot) return;
-    void import("@tauri-apps/api/core").then(({ invoke }) => createWorkshopSecureServiceRequester(workspaceRoot, invoke).then((requester) => { setRequest(() => requester); setConnectionStatus("Pulse connected."); }).catch(() => setConnectionStatus("Pulse could not connect to its private service.")));
+    setConnectionStatus("Connecting Pulse…");
+    void import("@tauri-apps/api/core")
+      .then(({ invoke }) => createWorkshopSecureServiceRequester(workspaceRoot, invoke))
+      .then((requester) => {
+        setRequest(() => requester);
+        setConnectionStatus("Pulse connected.");
+      })
+      .catch(() => setConnectionStatus("Pulse could not connect to its private service."));
   }, [workspaceRoot]);
   return <section aria-label="Pulse"><h2>Pulse</h2><p>Persistent reminders are acknowledged from Android with Done or Snooze.</p>
-    {activeRouteId === "settings" ? <><label>Private Pulse folder<input aria-label="Pulse private folder" value={root} onChange={(event) => setRoot(event.target.value)} /></label><button onClick={() => requestWorkspaceRoot(root || undefined)}>Connect Pulse</button></> : null}
-    <p role="status">{connectionStatus}</p>{request && activeRouteId !== "settings" ? <PulseManagementView request={request} /> : null}
+    <section aria-label="Pulse connection"><label>Private Pulse folder<input aria-label="Pulse private folder" value={root} onChange={(event) => setRoot(event.target.value)} /></label><button onClick={() => requestWorkspaceRoot(root || undefined)}>Connect Pulse</button></section>
+    <p role="status">{connectionStatus}</p>{request ? <PulseManagementView request={request} /> : <p>Connect a private Pulse folder to view or create reminders.</p>}
   </section>;
 }
 
@@ -52,9 +61,12 @@ export function PulseManagementView({ request }: { request: SecureServiceRequest
   const [status, setStatus] = useState("");
   const [pulses, setPulses] = useState<Array<{ id: string; title: string; active: boolean }>>([]);
   const refresh = async () => { try { const response = await service.snapshot(); setPulses(Array.isArray(response.body.pulses) ? response.body.pulses as Array<{ id: string; title: string; active: boolean }> : []); setStatus("Reminders refreshed."); } catch { setStatus("Pulse could not refresh reminders."); } };
+  useEffect(() => { void refresh(); }, [request]);
   const create = async () => {
     try { await service.create(pulseDefinitionFromForm({ title, day: "sunday", time: "09:00", repeat: "60", timezone: "America/Los_Angeles" })); setTitle(""); setStatus("Reminder saved."); }
     catch (error) { setStatus(error instanceof Error ? error.message : "Pulse could not save the reminder."); }
   };
-  return <section aria-label="Pulse reminders"><h2>Pulse reminders</h2><label>Name<input aria-label="Reminder name" value={title} onChange={(event) => setTitle(event.target.value)} /></label><button onClick={() => void create()}>Create reminder</button><button onClick={() => void refresh()}>Refresh</button><ul>{pulses.map((pulse) => <li key={pulse.id}>{pulse.title}<button onClick={() => void service.update(pulse.id, { ...pulse, active: !pulse.active }).then(refresh)}> {pulse.active ? "Pause" : "Resume"}</button><button onClick={() => void service.remove(pulse.id).then(refresh)}>Delete</button></li>)}</ul><p role="status">{status}</p></section>;
+  const toggle = async (pulse: { id: string; title: string; active: boolean }) => { try { await service.update(pulse.id, { ...pulse, active: !pulse.active }); await refresh(); } catch { setStatus("Pulse could not update the reminder."); } };
+  const remove = async (pulse: { id: string }) => { try { await service.remove(pulse.id); await refresh(); } catch { setStatus("Pulse could not delete the reminder."); } };
+  return <section aria-label="Pulse reminders"><h2>Pulse reminders</h2><label>Name<input aria-label="Reminder name" value={title} onChange={(event) => setTitle(event.target.value)} /></label><button onClick={() => void create()}>Create reminder</button><button onClick={() => void refresh()}>Refresh</button><ul>{pulses.map((pulse) => <li key={pulse.id}>{pulse.title}<button onClick={() => void toggle(pulse)}> {pulse.active ? "Pause" : "Resume"}</button><button onClick={() => void remove(pulse)}>Delete</button></li>)}</ul><p role="status">{status}</p></section>;
 }

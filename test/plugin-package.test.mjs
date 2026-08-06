@@ -15,6 +15,9 @@ test("Pulse owns an external planned Workshop plugin without Workshop source imp
   assert.match(source, /navigationMode: "plugin"/);
   assert.match(source, /status: "ready"/);
   assert.match(source, /request_configured_secure_service/);
+  assert.match(source, /Pulse connection/);
+  assert.match(source, /Connect a private Pulse folder to view or create reminders/);
+  assert.match(source, /useEffect\(\(\) => \{ void refresh\(\); \}, \[request\]\)/);
   assert.doesNotMatch(source, /workshop\/|\.\.\/workshop|@workshop/);
   assert.match(service, /pulsePath\("\/api\/v1\/snapshot"\)/);
   assert.doesNotMatch(service, /authorization|token|fetch\(/i);
