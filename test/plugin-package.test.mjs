@@ -63,6 +63,15 @@ test("public UI fixture provides active, paused, and occurrence-state coverage w
   assert.doesNotMatch(`${config}\n${JSON.stringify(state)}`, /mounjaro|lindsay|token|this_is_my_new_app_called_pulse_by_guppi/i);
 });
 
+test("public setup docs explain the generic Workshop connection without publishing a credential", () => {
+  const guide = readFileSync("docs/private-config.md", "utf8");
+  assert.match(guide, /pulse\.config\.json/);
+  assert.match(guide, /credentialRef/);
+  assert.match(guide, /Keychain/);
+  assert.match(guide, /Connect Pulse/);
+  assert.doesNotMatch(guide, /PULSE_API_TOKEN=[^\n]+/);
+});
+
 test("a clean consumer can install the Git package and run the plugin prepare build", () => {
   const root = new URL("../", import.meta.url).pathname;
   const temp = mkdtempSync(join(tmpdir(), "pulse-clean-consumer-"));

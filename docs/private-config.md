@@ -20,6 +20,7 @@ repositories:
   pulses.yaml
   state.json
   backups/
+  pulse.config.json
 ```
 
 Private files:
@@ -62,6 +63,29 @@ secret store; do not paste them into public documentation.
 
 The public repo includes `pulses.example.yaml` only as a safe fixture. Copy it to
 a private path before adding real obligations.
+
+## Workshop Secure-Service Connection
+
+Workshop never receives the runner API token in its webview. Its Pulse plugin
+reads only this metadata file from the private folder:
+
+```json
+{
+  "version": 1,
+  "endpoint": "https://your-private-pulse-service.example",
+  "credentialRef": "pulse-api-token"
+}
+```
+
+`endpoint` must be the HTTPS origin of the private Pulse API, with no path.
+`credentialRef` is a name, not a token. Store the matching token in the local
+macOS Keychain using Workshop's generic secure-service credential store; the
+Workshop host adds it to API requests and keeps it out of Pulse's UI.
+
+In Workshop, open Pulse, enter the absolute private folder path, and click
+**Connect Pulse**. Pulse loads existing reminders automatically and lets you
+create or manage them from that same view. The private folder is selected once
+per Workshop installation; it does not belong in the public Pulse repository.
 
 ## Private Pulse Config
 

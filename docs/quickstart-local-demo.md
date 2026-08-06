@@ -52,9 +52,16 @@ Stop with `Ctrl-C`.
 ## Manage in Workshop
 
 Pulse owns its management experience and can run inside Workshop as an optional
-independently versioned plugin. Connect the Pulse plugin to
-the private runner configuration after the runner contract is configured; do
-not use a second Pulse-specific web interface.
+independently versioned plugin. After configuring the private runner contract:
+
+1. Open Pulse in Workshop.
+2. Enter the absolute private Pulse folder that contains `pulse.config.json`.
+3. Click **Connect Pulse**.
+
+Pulse loads the current reminders automatically. Create, pause, resume, or
+delete reminders from that Pulse-owned view; do not use a second Pulse-specific
+web interface. The private folder and Keychain credential setup are described
+in [private-config.md](private-config.md).
 
 ## Next Step
 

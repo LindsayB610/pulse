@@ -56,6 +56,6 @@ npm run docs:check
 ```
 
 Pulse owns its management UI and can run inside Workshop as an independently
-versioned app. Workshop is only the desktop host. The plugin remains planned
-until Workshop supplies the generic secure-service capability documented in
+versioned app. Workshop is only the desktop host. The plugin uses Workshop's
+generic secure-service capability documented in
 [docs/workshop-secure-service-capability.md](docs/workshop-secure-service-capability.md).
