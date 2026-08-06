@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import { test } from "node:test";
 import { createPulseService, createWorkshopSecureServiceRequester, parsePulsePrivateConfig, pulseDefinitionFromForm, workshopPluginDeclaration } from "../plugin/dist/index.js";
 
@@ -43,4 +46,57 @@ test("plugin uses both generic host commands with the fixed Pulse config file", 
     { command: "request_configured_secure_service", args: { workspaceRoot: "/private/pulse", configFile: "pulse.config.json", request: { method: "GET", path: "/api/v1/snapshot" } } },
   ]);
   assert.doesNotMatch(JSON.stringify(calls), /token|authorization|secret/i);
+});
+
+test("public UI fixture provides active, paused, and occurrence-state coverage without private data", () => {
+  const root = new URL("../", import.meta.url).pathname;
+  const config = readFileSync(join(root, "plugin/fixtures/ui-demo/pulses.yaml"), "utf8");
+  const state = JSON.parse(readFileSync(join(root, "plugin/fixtures/ui-demo/state.json"), "utf8"));
+
+  assert.match(config, /id: water-plants/);
+  assert.match(config, /id: submit-timesheet/);
+  assert.match(config, /active: false/);
+  assert.deepEqual(state.occurrences.map((occurrence) => occurrence.state).sort(), ["done", "due", "scheduled"]);
+  assert.doesNotMatch(`${config}\n${JSON.stringify(state)}`, /mounjaro|lindsay|token|this_is_my_new_app_called_pulse_by_guppi/i);
+});
+
+test("a clean consumer can install the Git package and run the plugin prepare build", () => {
+  const root = new URL("../", import.meta.url).pathname;
+  const temp = mkdtempSync(join(tmpdir(), "pulse-clean-consumer-"));
+  const source = join(temp, "pulse");
+  const consumer = join(temp, "consumer");
+
+  try {
+    cpSync(root, source, {
+      recursive: true,
+      filter: (path) => ![
+        ".env",
+        ".git",
+        "backups",
+        "data",
+        "dist",
+        "logs",
+        "node_modules",
+        "pulses.yaml",
+        "state",
+      ].includes(basename(path)),
+    });
+    execFileSync("git", ["init", "--quiet"], { cwd: source });
+    execFileSync("git", ["config", "user.email", "pulse-test@example.invalid"], { cwd: source });
+    execFileSync("git", ["config", "user.name", "Pulse test"], { cwd: source });
+    execFileSync("git", ["add", "."], { cwd: source });
+    execFileSync("git", ["commit", "--quiet", "-m", "clean package"], { cwd: source });
+
+    mkdirSync(consumer);
+    writeFileSync(join(consumer, "package.json"), '{"private":true}\n');
+    execFileSync("npm", ["install", `git+file://${source}`], {
+      cwd: consumer,
+      stdio: "pipe",
+      timeout: 120_000,
+    });
+
+    assert.ok(existsSync(join(consumer, "node_modules/@marketing-builds/pulse/plugin/dist/index.js")));
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
+  }
 });

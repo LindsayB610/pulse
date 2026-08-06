@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "occurrences": [
+    {
+      "id": "water-plants:2026-08-02T16:00:00.000Z",
+      "pulseId": "water-plants",
+      "dueAt": "2026-08-02T16:00:00.000Z",
+      "state": "due"
+    },
+    {
+      "id": "submit-timesheet:2026-07-31T23:00:00.000Z",
+      "pulseId": "submit-timesheet",
+      "dueAt": "2026-07-31T23:00:00.000Z",
+      "state": "done",
+      "completedAt": "2026-07-31T23:18:00.000Z",
+      "completionNote": "Fixture acknowledgement"
+    },
+    {
+      "id": "replace-air-filter:2026-08-03T15:30:00.000Z",
+      "pulseId": "replace-air-filter",
+      "dueAt": "2026-08-03T15:30:00.000Z",
+      "state": "scheduled"
+    }
+  ],
+  "events": [
+    {
+      "id": "fixture-water-due",
+      "pulseId": "water-plants",
+      "occurrenceId": "water-plants:2026-08-02T16:00:00.000Z",
+      "type": "occurrence_became_due",
+      "at": "2026-08-02T16:00:00.000Z"
+    },
+    {
+      "id": "fixture-timesheet-done",
+      "pulseId": "submit-timesheet",
+      "occurrenceId": "submit-timesheet:2026-07-31T23:00:00.000Z",
+      "type": "occurrence_completed",
+      "at": "2026-07-31T23:18:00.000Z",
+      "metadata": { "note": "Fixture acknowledgement" }
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+# Public-safe fixture for visual development of the Pulse Workshop plugin.
+# This is deliberately not a real reminder configuration.
+pulses:
+  - id: water-plants
+    title: Water the plants
+    active: true
+    schedule:
+      type: weekly
+      daysOfWeek: [sunday]
+      time: "09:00"
+      timezone: America/Los_Angeles
+    notificationPolicy:
+      channels: [ntfy]
+      repeatEveryMinutes: 60
+
+  - id: submit-timesheet
+    title: Submit timesheet
+    active: false
+    schedule:
+      type: weekly
+      daysOfWeek: [friday]
+      time: "16:00"
+      timezone: America/Los_Angeles
+    notificationPolicy:
+      channels: [ntfy]
+      repeatEveryMinutes: 30
+
+  - id: replace-air-filter
+    title: Replace air filter
+    active: true
+    schedule:
+      type: weekly
+      daysOfWeek: [monday]
+      time: "08:30"
+      timezone: America/Los_Angeles
+    notificationPolicy:
+      channels: [ntfy]
+      repeatEveryMinutes: 120

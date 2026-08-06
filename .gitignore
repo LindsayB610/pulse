@@ -8,6 +8,8 @@ coverage/
 !.env.example
 pulses.yaml
 pulses.yml
+!plugin/fixtures/
+!plugin/fixtures/**
 private/
 state/
 data/
