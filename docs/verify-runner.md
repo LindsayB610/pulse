@@ -2,13 +2,16 @@
 
 Run this checklist before trusting Pulse with real obligations.
 
+Set `PULSE_PRIVATE_ROOT` to the absolute private directory outside the public
+checkout before running the command examples.
+
 ## Forced Test
 
 1. Copy [../examples/forced-test-pulse.yaml](../examples/forced-test-pulse.yaml)
    to your private `pulses.yaml`.
 2. Change `daysOfWeek` and `time` so the pulse is due a few minutes from now.
-3. Set `channels: [console]` for a local smoke or `channels: [sms]` for a
-   Twilio smoke.
+3. Set `channels: [console]` for a local smoke or `channels: [ntfy]` for an
+   Android push smoke.
 4. Start the runner.
 
 ## Expected Sequence
@@ -18,23 +21,29 @@ Run this checklist before trusting Pulse with real obligations.
 3. When the occurrence becomes due, the runner sends a notification.
 4. If the occurrence stays due, the runner repeats according to
    `repeatEveryMinutes`.
-5. Mark the occurrence Done.
-6. Confirm no more notifications are sent for that occurrence.
-7. Confirm completion history is present in `state.json`.
+5. Tap **Snooze 30 min** on the Android notification and confirm a new
+   notification arrives approximately thirty minutes later.
+6. Tap **Done** on that notification.
+7. Confirm no more notifications are sent for that occurrence and completion
+   history is present in `state.json`.
 
-## Mark Done
+## Done fallback command
+
+Use the Android notification's Done action for normal completion. The legacy
+headless command below is retained only as an operator recovery path; it is
+not required for normal use.
 
 If exactly one occurrence is due:
 
 ```sh
-PULSE_STATE_PATH=private/state.json \
+PULSE_STATE_PATH="$PULSE_PRIVATE_ROOT/state.json" \
 node bin/pulse-done.mjs --note "Verified runner."
 ```
 
 If multiple occurrences are due, pass the occurrence id:
 
 ```sh
-PULSE_STATE_PATH=private/state.json \
+PULSE_STATE_PATH="$PULSE_PRIVATE_ROOT/state.json" \
 node bin/pulse-done.mjs \
   --occurrence-id forced-test-check:2026-06-28T16:00:00.000Z \
   --note "Verified runner."
@@ -54,6 +63,6 @@ The timestamp will be the actual completion time.
 - The forced test occurrence becomes due.
 - The expected notification channel fires.
 - Repeats continue while the occurrence is due.
-- `pulse-done` marks the occurrence Done.
+- The Android Done action marks the occurrence Done.
 - Notification repeats stop after Done.
 - `state.json` contains `completedAt` for the occurrence.

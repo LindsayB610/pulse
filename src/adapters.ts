@@ -20,25 +20,13 @@ export type FetchLike = (
   },
 ) => Promise<FetchResponse>;
 
-export type SmsMessage = {
-  from: string;
-  to: string;
-  body: string;
-};
-
-export type SmsTransport = {
-  sendSms(message: SmsMessage): Promise<{ id?: string } | void> | { id?: string } | void;
-};
-
-export type TwilioSmsAdapterOptions = {
-  from: string;
-  to: string;
-  transport: SmsTransport;
-};
-
-export type TwilioSmsTransportOptions = {
-  accountSid: string;
-  authToken: string;
+export type NtfyNotificationAdapterOptions = {
+  topic: string;
+  server?: string;
+  token?: string;
+  /** A one-time acknowledgement endpoint attached to every due notification. */
+  doneActionUrl?: (input: NotificationInput) => string | Promise<string>;
+  snoozeActionUrl?: (input: NotificationInput) => string | Promise<string>;
   fetch?: FetchLike;
 };
 
@@ -47,6 +35,8 @@ export type NotificationEnv = Record<string, string | undefined>;
 export type NotificationDispatcherFromEnvOptions = {
   writer?: ConsoleNotificationWriter;
   fetch?: FetchLike;
+  doneActionUrl?: (input: NotificationInput) => string | Promise<string>;
+  snoozeActionUrl?: (input: NotificationInput) => string | Promise<string>;
 };
 
 export function createConsoleNotificationAdapter(
@@ -60,51 +50,41 @@ export function createConsoleNotificationAdapter(
   };
 }
 
-export function createTwilioSmsNotificationAdapter(options: TwilioSmsAdapterOptions): NotificationDispatcher {
+export function createNtfyNotificationAdapter(options: NtfyNotificationAdapterOptions): NotificationDispatcher {
+  const fetchImpl = options.fetch ?? defaultFetch;
+  const server = normalizeNtfyServer(options.server ?? "https://ntfy.sh");
+
   return {
     async send(input) {
-      const result = await options.transport.sendSms({
-        from: options.from,
-        to: options.to,
-        body: formatSmsBody(input),
+      const doneActionUrl = options.doneActionUrl === undefined
+        ? undefined
+        : await options.doneActionUrl(input);
+      const snoozeActionUrl = options.snoozeActionUrl === undefined
+        ? undefined
+        : await options.snoozeActionUrl(input);
+      const response = await fetchImpl(`${server}/${encodeURIComponent(options.topic)}`, {
+        method: "POST",
+        headers: {
+          ...(options.token === undefined ? {} : { authorization: `Bearer ${options.token}` }),
+          "content-type": "text/plain; charset=utf-8",
+          priority: "high",
+          tags: "bell",
+          title: `Pulse: ${input.pulse.title}`,
+          ...(doneActionUrl === undefined && snoozeActionUrl === undefined
+            ? {}
+            : { actions: notificationActions(doneActionUrl, snoozeActionUrl) }),
+        },
+        body: formatNtfyBody(input),
       });
+
+      if (!response.ok) {
+        throw new Error(`ntfy server returned ${response.status}`);
+      }
 
       return {
         ok: true,
-        detail: result?.id ?? "sent",
+        detail: "sent",
       };
-    },
-  };
-}
-
-export function createTwilioSmsTransport(options: TwilioSmsTransportOptions): SmsTransport {
-  const fetchImpl = options.fetch ?? defaultFetch;
-
-  return {
-    async sendSms(message) {
-      const response = await fetchImpl(
-        `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(options.accountSid)}/Messages.json`,
-        {
-          method: "POST",
-          headers: {
-            authorization: `Basic ${base64(`${options.accountSid}:${options.authToken}`)}`,
-            "content-type": "application/x-www-form-urlencoded",
-          },
-          body: new URLSearchParams({
-            From: message.from,
-            To: message.to,
-            Body: message.body,
-          }).toString(),
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error(`Twilio API returned ${response.status}`);
-      }
-
-      const payload = response.json ? await response.json() : undefined;
-      const id = readMessageId(payload);
-      return id === undefined ? { id: "sent" } : { id };
     },
   };
 }
@@ -113,30 +93,35 @@ export function createNotificationDispatcherFromEnv(
   env: NotificationEnv,
   options: NotificationDispatcherFromEnvOptions = {},
 ): NotificationDispatcher {
-  const channel = env.PULSE_NOTIFICATION_CHANNEL ?? "console";
+  const provider = env.PULSE_NOTIFY_PROVIDER ?? "console";
 
-  if (channel === "console") {
+  if (provider === "console" || provider === "noop") {
     return createConsoleNotificationAdapter(options.writer);
   }
 
-  if (channel === "sms" || channel === "twilio-sms") {
-    const accountSid = requiredEnv(env, "PULSE_TWILIO_ACCOUNT_SID");
-    const authToken = requiredEnv(env, "PULSE_TWILIO_AUTH_TOKEN");
-    const from = requiredEnv(env, "PULSE_TWILIO_FROM");
-    const to = requiredEnv(env, "PULSE_SMS_TO");
-
-    return createTwilioSmsNotificationAdapter({
-      from,
-      to,
-      transport: createTwilioSmsTransport({
-        accountSid,
-        authToken,
-        ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
-      }),
+  if (provider === "ntfy") {
+    return createNtfyNotificationAdapter({
+      topic: requiredEnv(env, "PULSE_NTFY_TOPIC"),
+      ...(env.PULSE_NTFY_SERVER === undefined || env.PULSE_NTFY_SERVER === ""
+        ? {}
+        : { server: env.PULSE_NTFY_SERVER }),
+      ...(env.PULSE_NTFY_TOKEN === undefined || env.PULSE_NTFY_TOKEN === ""
+        ? {}
+        : { token: env.PULSE_NTFY_TOKEN }),
+      ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+      ...(options.doneActionUrl === undefined ? {} : { doneActionUrl: options.doneActionUrl }),
+      ...(options.snoozeActionUrl === undefined ? {} : { snoozeActionUrl: options.snoozeActionUrl }),
     });
   }
 
-  throw new Error(`Unsupported PULSE_NOTIFICATION_CHANNEL: ${channel}`);
+  throw new Error(`Unsupported PULSE_NOTIFY_PROVIDER: ${provider}`);
+}
+
+function notificationActions(doneActionUrl: string | undefined, snoozeActionUrl: string | undefined): string {
+  return [
+    ...(doneActionUrl === undefined ? [] : [`http, Mark done, ${doneActionUrl}, method=POST, clear=true`]),
+    ...(snoozeActionUrl === undefined ? [] : [`http, Snooze 30 min, ${snoozeActionUrl}, method=POST, clear=true`]),
+  ].join("; ");
 }
 
 const consoleWriter: ConsoleNotificationWriter = {
@@ -149,7 +134,7 @@ function formatNotificationLine(input: NotificationInput): string {
   return `[pulse] ${input.channel}: ${input.pulse.title} due at ${input.occurrence.dueAt}`;
 }
 
-function formatSmsBody(input: NotificationInput): string {
+function formatNtfyBody(input: NotificationInput): string {
   return [
     `Pulse due: ${input.pulse.title}`,
     `Due: ${input.occurrence.dueAt}`,
@@ -165,29 +150,20 @@ async function defaultFetch(url: string, init: Parameters<FetchLike>[1]): Promis
   return globalThis.fetch(url, init);
 }
 
-function readMessageId(payload: unknown): string | undefined {
-  if (!isRecord(payload)) {
-    return undefined;
-  }
-
-  const id = payload.sid ?? payload.id;
-  return typeof id === "string" && id !== "" ? id : undefined;
-}
-
 function requiredEnv(env: NotificationEnv, key: string): string {
   const value = env[key];
   if (value === undefined || value === "") {
     throw new Error(
-      `Set ${key} before using PULSE_NOTIFICATION_CHANNEL=sms. See docs/env-vars.md for setup guidance.`,
+      `Set ${key} before using PULSE_NOTIFY_PROVIDER=ntfy. See docs/env-vars.md for setup guidance.`,
     );
   }
   return value;
 }
 
-function base64(input: string): string {
-  return Buffer.from(input, "utf8").toString("base64");
-}
-
-function isRecord(input: unknown): input is Record<string, unknown> {
-  return typeof input === "object" && input !== null && !Array.isArray(input);
+function normalizeNtfyServer(server: string): string {
+  const normalized = server.trim().replace(/\/+$/, "");
+  if (!/^https?:\/\//.test(normalized)) {
+    throw new Error("PULSE_NTFY_SERVER must be an http or https URL.");
+  }
+  return normalized;
 }

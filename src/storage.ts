@@ -1,5 +1,5 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 import { loadPulseDefinitionsFromYaml, type PulseDefinition, type PulseEvent, type PulseOccurrence } from "./model.js";
 
@@ -17,6 +17,7 @@ export type PulseState = {
 export type PulseStateStore = {
   read(): PulseState;
   write(state: PulseState): void;
+  withExclusive<T>(operation: () => Promise<T> | T): Promise<T>;
 };
 
 export type PulseBackupInput = {
@@ -43,8 +44,8 @@ export type PulseEnvConfig = {
   recipients: Record<string, string>;
 };
 
-const secretEnvKeys = ["PULSE_TWILIO_AUTH_TOKEN"];
-const recipientEnvKeys = ["PULSE_SMS_TO"];
+const secretEnvKeys = ["PULSE_NTFY_TOKEN", "PULSE_API_TOKEN"];
+const recipientEnvKeys = ["PULSE_NTFY_TOPIC"];
 
 export function loadPrivatePulseConfig(configPath: string): PrivatePulseConfig {
   const resolvedPath = resolve(configPath);
@@ -66,6 +67,7 @@ export function createEmptyPulseState(): PulseState {
 
 export function createJsonPulseStateStore(statePath: string): PulseStateStore {
   const resolvedPath = resolve(statePath);
+  const lockPath = `${resolvedPath}.lock`;
 
   return {
     read() {
@@ -77,13 +79,24 @@ export function createJsonPulseStateStore(statePath: string): PulseStateStore {
     },
     write(state) {
       mkdirSync(dirname(resolvedPath), { recursive: true });
-      writeFileSync(resolvedPath, `${JSON.stringify(parsePulseState(state), null, 2)}\n`);
+      const temporaryPath = `${resolvedPath}.${process.pid}.tmp`;
+      writeFileSync(temporaryPath, `${JSON.stringify(parsePulseState(state), null, 2)}\n`);
+      renameSync(temporaryPath, resolvedPath);
+    },
+    async withExclusive(operation) {
+      await acquireFileLock(lockPath);
+      try {
+        return await operation();
+      } finally {
+        unlinkSync(lockPath);
+      }
     },
   };
 }
 
 export function createMemoryPulseStateStore(initialState: PulseState = createEmptyPulseState()): PulseStateStore {
   let state = parsePulseState(initialState);
+  let exclusive = Promise.resolve();
 
   return {
     read() {
@@ -92,7 +105,46 @@ export function createMemoryPulseStateStore(initialState: PulseState = createEmp
     write(nextState) {
       state = parsePulseState(nextState);
     },
+    withExclusive(operation) {
+      const next = exclusive.then(operation, operation);
+      exclusive = next.then(
+        () => undefined,
+        () => undefined,
+      );
+      return next;
+    },
   };
+}
+
+async function acquireFileLock(lockPath: string): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  const staleAfterMs = 120_000;
+  mkdirSync(dirname(lockPath), { recursive: true });
+  while (true) {
+    try {
+      const descriptor = openSync(lockPath, "wx");
+      writeFileSync(descriptor, `${process.pid}\n`);
+      closeSync(descriptor);
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST" && isStaleLock(lockPath, staleAfterMs)) {
+        unlinkSync(lockPath);
+        continue;
+      }
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST" || Date.now() >= deadline) {
+        throw new Error(`Pulse state is busy; could not acquire ${lockPath} within 10 seconds.`);
+      }
+      await new Promise((resolveWait) => setTimeout(resolveWait, 25));
+    }
+  }
+}
+
+function isStaleLock(lockPath: string, staleAfterMs: number): boolean {
+  try {
+    return Date.now() - statSync(lockPath).mtimeMs > staleAfterMs;
+  } catch {
+    return false;
+  }
 }
 
 export function migratePulseState(input: unknown): PulseState {
@@ -176,6 +228,79 @@ export function getPulseEnvConfig(env: Record<string, string | undefined>): Puls
   return config;
 }
 
+/**
+ * Validates the private environment contract for a production Pulse runner.
+ * This is intentionally separate from the local console-demo configuration.
+ */
+export function validatePrivateDeliveryEnv(env: Record<string, string | undefined>): void {
+  const configPath = requiredPrivateEnv(env, "PULSE_CONFIG_PATH");
+  const statePath = requiredPrivateEnv(env, "PULSE_STATE_PATH");
+  const privateRoot = requiredPrivateEnv(env, "PULSE_PRIVATE_ROOT");
+  for (const [key, path] of [
+    ["PULSE_CONFIG_PATH", configPath],
+    ["PULSE_STATE_PATH", statePath],
+    ["PULSE_PRIVATE_ROOT", privateRoot],
+  ] as const) {
+    if (!isAbsolute(path)) {
+      throw new Error(`${key} must be an absolute path for a private production runner.`);
+    }
+  }
+  for (const [key, path] of [
+    ["PULSE_CONFIG_PATH", configPath],
+    ["PULSE_STATE_PATH", statePath],
+  ] as const) {
+    if (!isPathWithin(path, privateRoot)) {
+      throw new Error(`${key} must be inside PULSE_PRIVATE_ROOT for a private production runner.`);
+    }
+  }
+
+  if (env.PULSE_NOTIFY_PROVIDER !== "ntfy") {
+    throw new Error("PULSE_NOTIFY_PROVIDER must be ntfy for a private production runner.");
+  }
+
+  const server = requiredPrivateEnv(env, "PULSE_NTFY_SERVER");
+  let serverUrl: URL;
+  try {
+    serverUrl = new URL(server);
+  } catch {
+    throw new Error("PULSE_NTFY_SERVER must be a valid https URL for a private production runner.");
+  }
+  if (serverUrl.protocol !== "https:") {
+    throw new Error("PULSE_NTFY_SERVER must use https for a private production runner.");
+  }
+
+  const topic = requiredPrivateEnv(env, "PULSE_NTFY_TOPIC");
+  if (!/^[A-Za-z0-9_-]{32,}$/.test(topic)) {
+    throw new Error("PULSE_NTFY_TOPIC must be at least 32 URL-safe characters.");
+  }
+
+  const ntfyToken = requiredPrivateEnv(env, "PULSE_NTFY_TOKEN");
+
+  const apiToken = requiredPrivateEnv(env, "PULSE_API_TOKEN");
+  if (apiToken.length < 32) {
+    throw new Error("PULSE_API_TOKEN must be at least 32 characters.");
+  }
+  if (apiToken === ntfyToken) {
+    throw new Error("PULSE_API_TOKEN must be distinct from PULSE_NTFY_TOKEN.");
+  }
+}
+
+function requiredPrivateEnv(env: Record<string, string | undefined>, key: string): string {
+  const value = env[key];
+  if (value === undefined || value.trim() === "") {
+    throw new Error(`${key} is required for a private production runner.`);
+  }
+  if (value !== value.trim()) {
+    throw new Error(`${key} must not include leading or trailing whitespace.`);
+  }
+  return value;
+}
+
+function isPathWithin(path: string, root: string): boolean {
+  const relativePath = relative(resolve(root), resolve(path));
+  return relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath));
+}
+
 export function parsePulseState(input: unknown): PulseState {
   if (!isRecord(input)) {
     throw new Error("Pulse state must be an object.");
@@ -222,6 +347,18 @@ function parseOccurrenceState(input: unknown): PulseOccurrence {
   }
   if (input.completionNote !== undefined) {
     occurrence.completionNote = requiredString(input, "occurrence.completionNote");
+  }
+  if (input.snoozedAt !== undefined) {
+    if (occurrence.state !== "scheduled") {
+      throw new Error("Only scheduled occurrences can include snooze history.");
+    }
+    occurrence.snoozedAt = requiredIsoDate(input, "occurrence.snoozedAt");
+  }
+  if (input.snoozeCount !== undefined) {
+    if (typeof input.snoozeCount !== "number" || !Number.isInteger(input.snoozeCount) || input.snoozeCount < 1) {
+      throw new Error("occurrence.snoozeCount must be a positive integer.");
+    }
+    occurrence.snoozeCount = input.snoozeCount;
   }
 
   return occurrence;
@@ -275,6 +412,7 @@ function requiredEventType(input: unknown): PulseEvent["type"] {
     input === "occurrence_scheduled" ||
     input === "occurrence_became_due" ||
     input === "notification_sent" ||
+    input === "occurrence_snoozed" ||
     input === "occurrence_completed"
   ) {
     return input;

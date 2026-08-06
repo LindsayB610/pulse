@@ -1,104 +1,46 @@
 # Deploy Runner
 
-This guide deploys Pulse on a small always-on Linux VPS with Docker Compose.
-Use any VPS provider you control. The public repo supplies the runner; your
-server owns the private config, Twilio credentials, and state.
+Pulse production for this release runs on Netlify scheduled functions with
+private Netlify Blobs state. This is the only supported hosted model here.
 
-## Prerequisites
+## Configure Netlify
 
-- A Linux VPS with Docker and Docker Compose installed.
-- A Twilio SMS-capable sender number.
-- A private destination phone number.
-- A cloned Pulse repo on the server.
+Create a Netlify site for this repository, then set these **function/runtime**
+variables in the production context:
 
-## Server Layout
+- `PULSE_NOTIFY_PROVIDER=ntfy`
+- `PULSE_NTFY_SERVER=https://ntfy.sh`
+- `PULSE_NTFY_TOPIC` and `PULSE_NTFY_TOKEN` as secrets
+- `PULSE_API_TOKEN` as a separate secret
+- `PULSE_NOTIFICATION_ACTION_SECRET` as a separate secret
+- `PULSE_PUBLIC_BASE_URL` to the HTTPS Netlify site URL
 
-Create a private folder next to the repo files:
+Deploy with `netlify deploy --prod`. The `pulse-runner` scheduled function runs
+every minute. Its private Blobs store holds definitions and occurrence state;
+the public Git repository never receives real reminder definitions or tokens.
 
-```sh
-mkdir -p private
-chmod 700 private
-```
+## Private plugin connection
 
-Copy the sample config, then edit the day/time and title:
+Create a private Pulse folder outside both repositories with a
+`pulse.config.json` based on
+[../plugin/pulse.config.example.json](../plugin/pulse.config.example.json).
+The credential reference resolves only inside Workshop’s future generic secure
+service capability; the token is never exposed to Pulse’s webview.
 
-```sh
-cp examples/forced-test-pulse.yaml private/pulses.yaml
-```
+## Verification
 
-Create `private/.env`:
-
-```sh
-PULSE_CONFIG_PATH=/pulse/private/pulses.yaml
-PULSE_STATE_PATH=/pulse/private/state.json
-PULSE_NOTIFICATION_CHANNEL=sms
-PULSE_TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-PULSE_TWILIO_AUTH_TOKEN=use-your-secret-store
-PULSE_TWILIO_FROM=+15551234567
-PULSE_SMS_TO=+15557654321
-PULSE_RUNNER_INTERVAL_MS=60000
-```
-
-Lock down the env file:
-
-```sh
-chmod 600 private/.env private/pulses.yaml
-```
-
-## Deploy
-
-Build and start the runner:
-
-```sh
-docker compose -f deploy/docker-compose.yml up -d --build
-```
-
-Check logs:
-
-```sh
-docker compose -f deploy/docker-compose.yml logs -f pulse
-```
-
-The runner should print a JSON result on startup or continue quietly in watch
-mode until a pulse becomes due.
-
-## Forced Test Pulse
-
-Before deploying real obligations, edit `private/pulses.yaml` so the forced test
-pulse is due a few minutes from now:
-
-- Set `daysOfWeek` to today.
-- Set `time` to a near-future local time.
-- Keep `channels: [sms]`.
-- Keep `repeatEveryMinutes` low, such as `2`, only for this test.
-
-Restart the runner after editing:
-
-```sh
-docker compose -f deploy/docker-compose.yml restart pulse
-```
-
-## Mark Done
-
-After the forced test occurrence becomes due, mark it Done:
-
-```sh
-docker compose -f deploy/docker-compose.yml exec pulse \
-  node bin/pulse-done.mjs --note "Verified deployment."
-```
-
-Watch the logs for at least one repeat interval after Done. No more
-notifications should be sent for that occurrence.
+1. Create a forced test reminder through Pulse after the generic host
+   capability is available.
+2. Confirm the Netlify runner heartbeat is current.
+3. Confirm ntfy receives a high-priority notification.
+4. Tap Snooze, then Done, and confirm repeats stop.
 
 ## Success Checklist
 
-- `private/pulses.yaml` exists on the server and is not committed.
-- `private/.env` exists on the server and is not committed.
-- `docker compose -f deploy/docker-compose.yml up -d --build` succeeds.
-- `docker compose -f deploy/docker-compose.yml logs pulse` shows runner output.
-- `private/state.json` is created.
-- Confirm a Twilio SMS arrives for the forced test pulse.
-- Confirm repeat SMS sends while the occurrence remains due.
-- Confirm `pulse-done` marks the due occurrence Done.
-- Confirm notifications stop after Done.
-- Replace the forced test pulse with real private pulses only after the checklist passes.
+- Netlify runner heartbeat is current.
+- Private definitions and tokens are absent from the public repository.
+- ntfy delivers Android Done and Snooze actions.
+- A completed occurrence stops repeating.
+
+The former VPS/Docker/SSH-tunnel instructions are intentionally retired from
+the supported production path.

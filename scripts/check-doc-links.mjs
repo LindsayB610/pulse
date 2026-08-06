@@ -1,23 +1,9 @@
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, normalize } from "node:path";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { dirname, extname, join, normalize, relative } from "node:path";
 
-const root = new URL("../", import.meta.url).pathname;
-const files = [
-  "README.md",
-  "project-plan.md",
-  "examples/README.md",
-  "docs/quickstart-local-demo.md",
-  "docs/private-config.md",
-  "docs/env-vars.md",
-  "docs/deploy-runner.md",
-  "docs/notification-adapters.md",
-  "docs/verify-runner.md",
-  "docs/operations.md",
-  "docs/security-and-privacy.md",
-  "docs/backup-and-restore.md",
-  "docs/migrations.md",
-  "docs/release-checklist.md",
-];
+const root = process.env.PULSE_DOCS_ROOT ?? new URL("../", import.meta.url).pathname;
+const ignoredDirectories = new Set([".git", "coverage", "dist", "node_modules"]);
+const files = findMarkdownFiles(root);
 
 const linkPattern = /\[[^\]]+\]\(([^)]+)\)/g;
 const missing = [];
@@ -54,3 +40,17 @@ if (missing.length > 0) {
 }
 
 console.log(`Checked ${files.length} markdown files.`);
+
+function findMarkdownFiles(directory) {
+  return readdirSync(directory, { withFileTypes: true })
+    .flatMap((entry) => {
+      if (entry.isDirectory()) {
+        return ignoredDirectories.has(entry.name) ? [] : findMarkdownFiles(join(directory, entry.name));
+      }
+
+      return entry.isFile() && extname(entry.name).toLowerCase() === ".md"
+        ? [relative(root, join(directory, entry.name))]
+        : [];
+    })
+    .sort();
+}

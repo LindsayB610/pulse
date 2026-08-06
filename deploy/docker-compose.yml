@@ -5,10 +5,31 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     env_file:
-      - ../private/.env
+      - ${PULSE_PRIVATE_ROOT:?Set PULSE_PRIVATE_ROOT to an absolute directory outside the public repo}/.env
     environment:
       PULSE_CONFIG_PATH: /pulse/private/pulses.yaml
       PULSE_STATE_PATH: /pulse/private/state.json
-      PULSE_NOTIFICATION_CHANNEL: sms
+      PULSE_PRIVATE_ROOT: /pulse/private
+      PULSE_RUNNER_MODE: production
+      PULSE_NOTIFY_PROVIDER: ${PULSE_NOTIFY_PROVIDER:-ntfy}
     volumes:
-      - ../private:/pulse/private
+      - ${PULSE_PRIVATE_ROOT:?Set PULSE_PRIVATE_ROOT to an absolute directory outside the public repo}:/pulse/private
+  pulse-api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: ["node", "bin/pulse-api.mjs"]
+    restart: unless-stopped
+    env_file:
+      - ${PULSE_PRIVATE_ROOT:?Set PULSE_PRIVATE_ROOT to an absolute directory outside the public repo}/.env
+    environment:
+      PULSE_CONFIG_PATH: /pulse/private/pulses.yaml
+      PULSE_STATE_PATH: /pulse/private/state.json
+      PULSE_PRIVATE_ROOT: /pulse/private
+      PULSE_RUNNER_MODE: production
+      PULSE_API_HOST: 0.0.0.0
+      PULSE_API_PORT: 8787
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - ${PULSE_PRIVATE_ROOT:?Set PULSE_PRIVATE_ROOT to an absolute directory outside the public repo}:/pulse/private

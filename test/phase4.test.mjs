@@ -1,12 +1,31 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 
 import {
   createEmptyPulseState,
   createMemoryPulseStateStore,
   createPollingRunner,
+  readPulseRunnerHealth,
   runPulseRunnerTick,
+  writePulseRunnerHeartbeat,
 } from "../dist/index.js";
+
+test("runner heartbeat reports running, stale, and missing states", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pulse-health-"));
+  const path = join(dir, "runner-health.json");
+  const now = new Date("2026-08-04T12:00:00.000Z");
+  try {
+    assert.equal(readPulseRunnerHealth(path, now, 120_000).status, "unknown");
+    writePulseRunnerHeartbeat(path, new Date("2026-08-04T11:59:00.000Z"));
+    assert.equal(readPulseRunnerHealth(path, now, 120_000).status, "running");
+    assert.equal(readPulseRunnerHealth(path, new Date("2026-08-04T12:03:01.000Z"), 120_000).status, "stale");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 const weeklyPulse = {
   id: "weekly-demo-check",
@@ -205,6 +224,29 @@ test("runner creates the next missed occurrence after prior completion history",
   assert.equal(restored.occurrences[1].id, "weekly-demo-check:2026-06-28T16:00:00.000Z");
   assert.equal(restored.occurrences[1].state, "due");
   assert.equal(notifier.sends.length, 1);
+});
+
+test("runner keeps exactly one open occurrence for a recurring pulse", async () => {
+  const store = createMemoryPulseStateStore(createEmptyPulseState());
+  const notifier = createFakeNotifier();
+
+  await runPulseRunnerTick({ now: new Date("2026-08-05T20:00:00.000Z"), pulses: [weeklyPulse], stateStore: store, notifier });
+  await runPulseRunnerTick({ now: new Date("2026-08-05T20:01:00.000Z"), pulses: [weeklyPulse], stateStore: store, notifier });
+
+  assert.equal(store.read().occurrences.filter((occurrence) => occurrence.state !== "done").length, 1);
+});
+
+test("runner self-heals stale future open occurrences by retaining the earliest", async () => {
+  const state = createEmptyPulseState();
+  state.occurrences.push(
+    { id: "weekly-demo-check:2026-08-09T16:00:00.000Z", pulseId: "weekly-demo-check", dueAt: "2026-08-09T16:00:00.000Z", state: "scheduled" },
+    { id: "weekly-demo-check:2026-08-16T16:00:00.000Z", pulseId: "weekly-demo-check", dueAt: "2026-08-16T16:00:00.000Z", state: "scheduled" },
+  );
+  const store = createMemoryPulseStateStore(state);
+
+  await runPulseRunnerTick({ now: new Date("2026-08-05T20:00:00.000Z"), pulses: [weeklyPulse], stateStore: store, notifier: createFakeNotifier() });
+
+  assert.deepEqual(store.read().occurrences.map((occurrence) => occurrence.id), ["weekly-demo-check:2026-08-09T16:00:00.000Z"]);
 });
 
 test("runner logs failed notification attempts and persists due state", async () => {

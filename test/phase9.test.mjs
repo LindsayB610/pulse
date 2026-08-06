@@ -243,10 +243,9 @@ test("missing credentials fail with setup guidance", () => {
   assert.throws(
     () =>
       createNotificationDispatcherFromEnv({
-        PULSE_NOTIFICATION_CHANNEL: "sms",
-        PULSE_TWILIO_ACCOUNT_SID: "AC00000000000000000000000000000000",
+        PULSE_NOTIFY_PROVIDER: "ntfy",
       }),
-    /Set PULSE_TWILIO_AUTH_TOKEN before using PULSE_NOTIFICATION_CHANNEL=sms. See docs\/env-vars.md/,
+    /Set PULSE_NTFY_TOPIC before using PULSE_NOTIFY_PROVIDER=ntfy. See docs\/env-vars.md/,
   );
 });
 

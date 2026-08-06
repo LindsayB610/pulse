@@ -35,6 +35,7 @@ export type PulseRunnerTickInput = {
 export type PulsePollingRunnerInput = Omit<PulseRunnerTickInput, "now"> & {
   now?: () => Date;
   intervalMs: number;
+  onTick?: () => void;
 };
 
 export type PulseRunnerTickResult = {
@@ -47,6 +48,10 @@ const defaultRepeatEveryMinutes = 60;
 const defaultChannels = ["console"];
 
 export async function runPulseRunnerTick(input: PulseRunnerTickInput): Promise<PulseRunnerTickResult> {
+  return input.stateStore.withExclusive(() => runPulseRunnerTickExclusive(input));
+}
+
+async function runPulseRunnerTickExclusive(input: PulseRunnerTickInput): Promise<PulseRunnerTickResult> {
   const state = input.stateStore.read();
   const result: PulseRunnerTickResult = {
     scheduled: 0,
@@ -54,7 +59,12 @@ export async function runPulseRunnerTick(input: PulseRunnerTickInput): Promise<P
     notificationsSent: 0,
   };
 
+  retainEarliestOpenOccurrencePerPulse(state, input.pulses);
+
   for (const pulse of input.pulses) {
+    if (state.occurrences.some((occurrence) => occurrence.pulseId === pulse.id && occurrence.state !== "done")) {
+      continue;
+    }
     const nextOccurrence = generateNextOccurrence(pulse, {
       after: input.now,
       existingOccurrences: state.occurrences,
@@ -137,6 +147,30 @@ export async function runPulseRunnerTick(input: PulseRunnerTickInput): Promise<P
   return result;
 }
 
+/**
+ * A recurring pulse has one active obligation at a time. Older runner builds
+ * could pre-schedule future weeks on every tick; retain the earliest open
+ * occurrence so that stale state self-heals instead of producing a backlog.
+ */
+function retainEarliestOpenOccurrencePerPulse(state: PulseState, pulses: PulseDefinition[]): void {
+  const pulseIds = new Set(pulses.map((pulse) => pulse.id));
+  const retained = new Set<string>();
+  for (const occurrence of [...state.occurrences]
+    .filter((occurrence) => pulseIds.has(occurrence.pulseId) && occurrence.state !== "done")
+    .sort((left, right) => Date.parse(left.dueAt) - Date.parse(right.dueAt))) {
+    if (!retained.has(occurrence.pulseId)) retained.add(occurrence.pulseId);
+  }
+  state.occurrences = state.occurrences.filter((occurrence) => {
+    return occurrence.state === "done" || !pulseIds.has(occurrence.pulseId) || retained.has(occurrence.pulseId) && occurrence.id === earliestOpenOccurrenceId(state, occurrence.pulseId);
+  });
+}
+
+function earliestOpenOccurrenceId(state: PulseState, pulseId: string): string | undefined {
+  return state.occurrences
+    .filter((occurrence) => occurrence.pulseId === pulseId && occurrence.state !== "done")
+    .sort((left, right) => Date.parse(left.dueAt) - Date.parse(right.dueAt))[0]?.id;
+}
+
 export function createPollingRunner(input: PulsePollingRunnerInput) {
   let timer: ReturnType<typeof setInterval> | undefined;
   const now = input.now ?? (() => new Date());
@@ -147,7 +181,11 @@ export function createPollingRunner(input: PulsePollingRunnerInput) {
         return;
       }
       timer = setInterval(() => {
-        void runPulseRunnerTick({ ...input, now: now() });
+        void runPulseRunnerTick({ ...input, now: now() })
+          .then(() => input.onTick?.())
+          .catch((error) => {
+            console.error("Pulse runner tick failed:", error);
+          });
       }, input.intervalMs);
     },
     stop() {

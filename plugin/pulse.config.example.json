@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "endpoint": "https://your-private-pulse-service.example",
+  "credentialRef": "pulse-api-token"
+}

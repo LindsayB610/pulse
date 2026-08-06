@@ -69,16 +69,34 @@ test("only due occurrences can be completed", () => {
   );
 });
 
-test("snooze, dismiss, skip, and seen actions are rejected", () => {
+test("dismiss, skip, and seen actions are rejected", () => {
   const occurrence = scheduledOccurrence({ state: "due" });
 
-  for (const action of ["snooze", "dismiss", "skip", "seen"]) {
+  for (const action of ["dismiss", "skip", "seen"]) {
     assert.throws(
       () => applyOccurrenceAction(occurrence, { type: action, at: new Date("2026-06-28T16:07:00.000Z") }),
       /Unsupported occurrence action/,
       `${action} should not be supported`,
     );
   }
+});
+
+test("snooze moves a due occurrence to its next reminder time", () => {
+  const occurrence = scheduledOccurrence({ state: "due" });
+  const at = new Date("2026-06-28T16:00:00.000Z");
+  const snoozed = applyOccurrenceAction(occurrence, {
+    type: "snooze",
+    at,
+    until: new Date("2026-06-28T16:30:00.000Z"),
+  });
+
+  assert.deepEqual(snoozed, {
+    ...occurrence,
+    state: "scheduled",
+    dueAt: "2026-06-28T16:30:00.000Z",
+    snoozedAt: "2026-06-28T16:00:00.000Z",
+    snoozeCount: 1,
+  });
 });
 
 test("done action is the only supported active escape hatch", () => {

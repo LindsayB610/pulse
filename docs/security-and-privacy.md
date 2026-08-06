@@ -7,7 +7,7 @@ Never commit:
 
 - real `pulses.yaml`
 - `.env`
-- Twilio credentials
+- ntfy topics and access tokens
 - phone numbers
 - state files
 - backups
@@ -17,9 +17,9 @@ Public examples should use fictional obligations only.
 
 ## Host Rules
 
-- Keep `private/` readable only by the deploy user.
+- Keep `$PULSE_PRIVATE_ROOT` readable only by the deploy user and outside the public checkout.
 - Use a host secret store if your provider offers one.
-- Rotate `PULSE_TWILIO_AUTH_TOKEN` if it appears in logs or shell history.
+- Rotate `PULSE_NTFY_TOKEN` if it appears in logs or shell history.
 - Treat `state.json` as private because it contains completion history.
 - Treat pulse titles as private if they reveal health, family, legal, financial,
   or other sensitive obligations.
@@ -33,8 +33,8 @@ runner logs private.
 ## Security Review Checklist
 
 - Real `pulses.yaml` lives outside the public repo.
-- `PULSE_TWILIO_AUTH_TOKEN` and other credentials are supplied by private env.
-- `private/state.json` is backed up before upgrades.
+- `PULSE_NTFY_TOKEN` and other credentials are supplied by private env.
+- `$PULSE_PRIVATE_ROOT/state.json` is backed up before upgrades.
 - State imports are validated before replacing active state.
 - The runner is reachable only by the operator or trusted private network.
 - Done links or local UI access are not exposed publicly without authentication.

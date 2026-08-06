@@ -8,19 +8,19 @@ It is a small public engine for private self-hosted runners.
 
 ## Current Status
 
-Phases 0-9 are complete:
+The durable engine, ntfy delivery, authenticated runner API, and independently
+versioned Workshop plugin are being completed as one rebuild package:
 
 - public repo boundary
 - TypeScript package shape
 - test and build scripts
 - repeating pulse model and no-dismiss Done state
 - runner loop with retry behavior
-- Twilio SMS and console notification adapters
+- console notifications for local demos; authenticated ntfy Android push for production
 - public example configs
 - private config guardrails
 - self-hosting documentation
-- minimal local management UI
-- Workshop tool-shell integration
+- Pulse-owned plugin UI and generic secure-service host-capability proposal
 - release hardening with backup, restore, migration, import validation, and
   release checklist gates
 
@@ -55,10 +55,7 @@ npm run build
 npm run docs:check
 ```
 
-Start the local management UI after building:
-
-```sh
-PULSE_CONFIG_PATH=./pulses.example.yaml \
-PULSE_STATE_PATH=/tmp/pulse-demo-state.json \
-node bin/pulse-ui.mjs
-```
+Pulse owns its management UI and can run inside Workshop as an independently
+versioned app. Workshop is only the desktop host. The plugin remains planned
+until Workshop supplies the generic secure-service capability documented in
+[docs/workshop-secure-service-capability.md](docs/workshop-secure-service-capability.md).

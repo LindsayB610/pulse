@@ -4,11 +4,11 @@ import { test } from "node:test";
 import {
   createNotificationDispatcherFromEnv,
   createConsoleNotificationAdapter,
-  createTwilioSmsNotificationAdapter,
-  createTwilioSmsTransport,
+  createNtfyNotificationAdapter,
   createEmptyPulseState,
   createMemoryPulseStateStore,
   runPulseRunnerTick,
+  notificationActionOccurrenceId,
 } from "../dist/index.js";
 
 const pulse = {
@@ -22,7 +22,7 @@ const pulse = {
     timezone: "America/Los_Angeles",
   },
   notificationPolicy: {
-    channels: ["sms"],
+    channels: ["ntfy"],
     repeatEveryMinutes: 30,
   },
 };
@@ -55,31 +55,57 @@ test("console adapter records expected payload", async () => {
   assert.match(lines[0], /2026-06-28T16:00:00.000Z/);
 });
 
-test("twilio sms adapter sends through a safe mocked transport", async () => {
-  const messages = [];
-  const adapter = createTwilioSmsNotificationAdapter({
-    from: "+15551234567",
-    to: "+15557654321",
-    transport: {
-      async sendSms(message) {
-        messages.push(message);
-        return { id: "SM00000000000000000000000000000000" };
-      },
+test("ntfy adapter sends a private topic notification with the due state", async () => {
+  const requests = [];
+  const adapter = createNtfyNotificationAdapter({
+    topic: "private-pulse-topic",
+    token: "private-token",
+    fetch: async (url, init) => {
+      requests.push({ url, init });
+      return { ok: true, status: 200 };
     },
   });
 
   const result = await adapter.send({
-    channel: "sms",
+    channel: "ntfy",
     pulse,
     occurrence,
     now: new Date("2026-06-28T16:00:00.000Z"),
   });
 
-  assert.deepEqual(result, { ok: true, detail: "SM00000000000000000000000000000000" });
-  assert.equal(messages[0].from, "+15551234567");
-  assert.equal(messages[0].to, "+15557654321");
-  assert.match(messages[0].body, /Pulse due: Weekly demo check/);
-  assert.match(messages[0].body, /Mark Done to stop reminders/);
+  assert.deepEqual(result, { ok: true, detail: "sent" });
+  assert.equal(requests[0].url, "https://ntfy.sh/private-pulse-topic");
+  assert.equal(requests[0].init.headers.authorization, "Bearer private-token");
+  assert.equal(requests[0].init.headers.title, "Pulse: Weekly demo check");
+  assert.equal(requests[0].init.headers.priority, "high");
+  assert.match(requests[0].init.body, /Mark Done to stop reminders/);
+});
+
+test("ntfy due notifications include one-tap Done and Snooze actions when configured", async () => {
+  const requests = [];
+  const adapter = createNtfyNotificationAdapter({
+    topic: "private-pulse-topic",
+    doneActionUrl: async (input) => `https://pulse.example.test/api/v1/notification-actions/${encodeURIComponent(input.occurrence.id)}/done?token=one-time-proof`,
+    snoozeActionUrl: async (input) => `https://pulse.example.test/api/v1/notification-actions/${encodeURIComponent(input.occurrence.id)}/snooze?token=snooze-proof`,
+    fetch: async (url, init) => {
+      requests.push({ url, init });
+      return { ok: true, status: 200 };
+    },
+  });
+
+  await adapter.send({ channel: "ntfy", pulse, occurrence, now: new Date("2026-06-28T16:00:00.000Z") });
+
+  assert.equal(
+    requests[0].init.headers.actions,
+    "http, Mark done, https://pulse.example.test/api/v1/notification-actions/weekly-demo-check%3A2026-06-28T16%3A00%3A00.000Z/done?token=one-time-proof, method=POST, clear=true; http, Snooze 30 min, https://pulse.example.test/api/v1/notification-actions/weekly-demo-check%3A2026-06-28T16%3A00%3A00.000Z/snooze?token=snooze-proof, method=POST, clear=true",
+  );
+});
+
+test("notification action routes decode the occurrence ID before signature verification", () => {
+  assert.equal(
+    notificationActionOccurrenceId("weekly-demo-check%3A2026-06-28T16%3A00%3A00.000Z"),
+    "weekly-demo-check:2026-06-28T16:00:00.000Z",
+  );
 });
 
 test("adapter failures are recorded and retried according to policy", async () => {
@@ -87,14 +113,11 @@ test("adapter failures are recorded and retried according to policy", async () =
   state.occurrences.push(occurrence);
   const store = createMemoryPulseStateStore(state);
   let attempts = 0;
-  const adapter = createTwilioSmsNotificationAdapter({
-    from: "+15551234567",
-    to: "+15557654321",
-    transport: {
-      async sendSms() {
-        attempts += 1;
-        throw new Error("twilio unavailable");
-      },
+  const adapter = createNtfyNotificationAdapter({
+    topic: "private-pulse-topic",
+    fetch: async () => {
+      attempts += 1;
+      throw new Error("ntfy unavailable");
     },
   });
 
@@ -121,20 +144,18 @@ test("adapter failures are recorded and retried according to policy", async () =
   assert.equal(attempts, 2);
   assert.equal(events.length, 2);
   assert.equal(events[0].metadata.ok, false);
-  assert.equal(events[0].metadata.detail, "twilio unavailable");
+  assert.equal(events[0].metadata.detail, "ntfy unavailable");
 });
 
-test("runner redacts configured twilio secrets from failed notification details", async () => {
+test("runner redacts configured ntfy tokens and topics from failed notification details", async () => {
   const state = createEmptyPulseState();
   state.occurrences.push(occurrence);
   const store = createMemoryPulseStateStore(state);
-  const adapter = createTwilioSmsNotificationAdapter({
-    from: "+15551234567",
-    to: "+15557654321",
-    transport: {
-      async sendSms() {
-        throw new Error("auth failed for super-secret-token");
-      },
+  const adapter = createNtfyNotificationAdapter({
+    topic: "private-pulse-topic",
+    token: "super-secret-token",
+    fetch: async () => {
+      throw new Error("auth failed for super-secret-token at https://ntfy.sh/private-pulse-topic");
     },
   });
 
@@ -143,83 +164,50 @@ test("runner redacts configured twilio secrets from failed notification details"
     pulses: [pulse],
     stateStore: store,
     notifier: adapter,
-    redactValues: ["super-secret-token"],
+    redactValues: ["super-secret-token", "private-pulse-topic"],
   });
 
   const event = store.read().events.find((candidate) => candidate.type === "notification_sent");
   assert.equal(event.metadata.ok, false);
   assert.equal(event.metadata.detail.includes("super-secret-token"), false);
+  assert.equal(event.metadata.detail.includes("private-pulse-topic"), false);
   assert.match(event.metadata.detail, /\[redacted\]/);
 });
 
-test("twilio sms transport posts form encoded message without leaking auth token in result", async () => {
-  const requests = [];
-  const transport = createTwilioSmsTransport({
-    accountSid: "AC00000000000000000000000000000000",
-    authToken: "super-secret-token",
-    fetch: async (url, init) => {
-      requests.push({ url, init });
-      return {
-        ok: true,
-        status: 201,
-        async json() {
-          return { sid: "SM00000000000000000000000000000000" };
-        },
-      };
-    },
-  });
-
-  const result = await transport.sendSms({
-    from: "+15551234567",
-    to: "+15557654321",
-    body: "Done turns this off.",
-  });
-  const body = new URLSearchParams(requests[0].init.body);
-
-  assert.deepEqual(result, { id: "SM00000000000000000000000000000000" });
-  assert.equal(
-    requests[0].url,
-    "https://api.twilio.com/2010-04-01/Accounts/AC00000000000000000000000000000000/Messages.json",
-  );
-  assert.equal(requests[0].init.headers["content-type"], "application/x-www-form-urlencoded");
-  assert.match(requests[0].init.headers.authorization, /^Basic /);
-  assert.equal(body.get("From"), "+15551234567");
-  assert.equal(body.get("To"), "+15557654321");
-  assert.equal(body.get("Body"), "Done turns this off.");
-  assert.equal(JSON.stringify(result).includes("super-secret-token"), false);
-});
-
-test("runner environment can construct a twilio sms notification adapter", async () => {
+test("runner environment requires an ntfy topic and constructs the ntfy adapter", async () => {
   const requests = [];
   const adapter = createNotificationDispatcherFromEnv(
     {
-      PULSE_NOTIFICATION_CHANNEL: "sms",
-      PULSE_TWILIO_ACCOUNT_SID: "AC00000000000000000000000000000000",
-      PULSE_TWILIO_AUTH_TOKEN: "super-secret-token",
-      PULSE_TWILIO_FROM: "+15551234567",
-      PULSE_SMS_TO: "+15557654321",
+      PULSE_NOTIFY_PROVIDER: "ntfy",
+      PULSE_NTFY_TOPIC: "private-pulse-topic",
+      PULSE_NTFY_TOKEN: "super-secret-token",
     },
     {
       fetch: async (url, init) => {
         requests.push({ url, init });
         return {
           ok: true,
-          status: 201,
-          async json() {
-            return { sid: "SM00000000000000000000000000000000" };
-          },
+          status: 200,
         };
       },
     },
   );
 
   const result = await adapter.send({
-    channel: "sms",
+    channel: "ntfy",
     pulse,
     occurrence,
     now: new Date("2026-06-28T16:00:00.000Z"),
   });
 
-  assert.deepEqual(result, { ok: true, detail: "SM00000000000000000000000000000000" });
+  assert.deepEqual(result, { ok: true, detail: "sent" });
   assert.equal(requests.length, 1);
+  assert.equal(requests[0].init.headers.authorization, "Bearer super-secret-token");
+});
+
+test("ntfy config errors name the missing private setting", () => {
+  assert.throws(
+    () => createNotificationDispatcherFromEnv({ PULSE_NOTIFY_PROVIDER: "ntfy" }),
+    /PULSE_NTFY_TOPIC/,
+  );
 });

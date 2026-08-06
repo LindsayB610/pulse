@@ -8,6 +8,7 @@ coverage/
 !.env.example
 pulses.yaml
 pulses.yml
+private/
 state/
 data/
 backups/
@@ -19,3 +20,6 @@ logs/
 # OS/editor noise
 .DS_Store
 *.swp
+
+# Local Netlify folder
+.netlify

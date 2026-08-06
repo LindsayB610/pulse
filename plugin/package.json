@@ -1,0 +1,12 @@
+{
+  "name": "@pulse/workshop-plugin",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": { "build": "tsc -p tsconfig.json" },
+  "peerDependencies": { "@tauri-apps/api": "^2.0.0", "react": "^19.0.0" },
+  "devDependencies": { "@tauri-apps/api": "^2.0.0", "@types/react": "^19.0.0", "react": "^19.0.0", "typescript": "^5.5.4" },
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } }
+}

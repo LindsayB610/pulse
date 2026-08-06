@@ -20,14 +20,69 @@ The product promise is:
 | --- | --- | --- | --- |
 | 0 | Complete | Project shape | Public repo, README, license, package skeleton, test runner, and product docs exist. |
 | 1 | Complete | Core pulse model | Repeating pulse definitions generate due occurrences with durable state and completion history. |
-| 2 | Complete | No-dismiss state machine | A due occurrence can only leave the active notification loop by being marked Done. |
+| 2 | Complete | Done-or-snooze state machine | Done closes an occurrence; Snooze moves it forward thirty minutes without ending it. |
 | 3 | Complete | Local private data contract | Real pulses, secrets, delivery settings, and history live in private local config outside the public repo. |
 | 4 | Complete | Runner loop | A headless runner detects due occurrences, sends notifications, retries, and prevents duplicate sends. |
-| 5 | Complete | Notification adapters | Twilio SMS and console notification adapters are implemented behind a stable adapter interface. |
-| 6 | Complete | Self-hosting docs | Users can deploy their own private cloud runner with copyable setup, env, verification, and operations docs. |
-| 7 | Complete | Minimal management UI | A tiny local/web UI can list pulses, show due state, mark Done, and inspect completion history. |
-| 8 | Complete | Workshop integration | Pulse can optionally appear as a Workshop tool while keeping the public Pulse repo as source of truth. |
+| 5 | Implemented — live phone proof pending | Android push notification adapters | Replace the retired Twilio SMS path with ntfy Android push and phone-native Done/Snooze actions. |
+| 6 | Superseded | VPS/self-hosting docs | Netlify scheduled functions are the supported production mode for this release; VPS instructions are historical. |
+| 7 | In progress | Pulse-owned plugin UI | Pulse owns its view, routes, forms, and tests; Workshop is an optional host. |
+| 8 | Blocked on host capability | Generic secure service | Workshop must supply the proposed generic secret-preserving service capability. |
 | 9 | Complete | Release hardening | Backup, restore, migrations, security review, and end-to-end acceptance gates are documented and tested. |
+
+## Pulse Rebuild Program — Review First
+
+**Status: implementation through R7 is in progress.** The owner requested one
+consolidated review after the full R1–R7 package, so these phases are being
+built and verified as a single controlled batch. They are not individually
+accepted until that review.
+
+### Product decisions already made
+
+- Pulse owns its management UI and can run inside Workshop as an independently versioned app; Workshop is only the desktop host.
+- Pulse remains the private engine for schedules, state, repeat behavior, and
+  notification delivery.
+- Android push through `ntfy` is the first real notification provider.
+- Twilio/SMS is retired from the active product plan.
+- The runner must remain private and always-on so notifications work while the
+  Workshop computer is off.
+- Done stops a due occurrence's repeat loop. Snooze is a fixed 30-minute
+  Android notification action; dismiss and skip are not available.
+
+| Rebuild phase | Status | Outcome | Review gate before implementation | Acceptance evidence |
+| --- | --- | --- | --- | --- |
+| R0 — Rebaseline | Accepted | Record the agreed product boundary and inventory the current exploratory changes. | Confirm this plan and identify which exploratory changes belong to which phase. | Clean change inventory; no implementation is treated as accepted by default. |
+| R1 — Private delivery contract | Implemented — consolidated verification pending | Define the public/private configuration contract for ntfy, the runner API, and Android device setup. | Private config, state, tokens, and topics stay outside both public repositories. | Tests reject missing/invalid config; docs never include real topic names or tokens. |
+| R2 — ntfy provider | Implemented — live phone proof pending | Make ntfy the supported production notification adapter and retain console only for local testing. | Title/body identify the due obligation; high-priority `bell` push repeats until Done or Snooze. | Mocked HTTP payload/config/error/redaction tests; Android manual test checklist. |
+| R3 — Private runner API | Implemented — live phone proof pending | Define the versioned, authenticated hosted-runner contract. | Netlify private storage is authoritative; bearer credentials never enter a plugin webview. | Contract tests for snapshot, configuration, Done/Snooze payloads, and fail-closed startup. |
+| R4 — Pulse plugin package | In progress | Export Pulse-owned declaration, routes, view, models, and tests. | No Workshop-source imports; plugin stays planned until host capability acceptance. | Package-surface and public-boundary tests. |
+| R5 — Generic service handoff | In progress | Specify the host capability Pulse needs without adding Pulse-named Workshop commands. | Host reads secret internally; plugin supplies only constrained requests. | Proposal and expected host test matrix. |
+| R6 — Deployment clarity | In progress | Support Netlify scheduled functions as the production mode for this release. | Historical VPS/SSH instructions are explicitly superseded. | Docs and API compatibility checks. |
+| R7 — Cloud runner and Android proof | Implemented — manual external proof pending | Deploy Netlify scheduled functions that run the repeat loop and expose the private API safely. | Netlify Blobs holds private state and definitions; Android receives signed phone actions. | Automated deployment/static checks plus the documented end-to-end Android proof checklist. |
+| R8 — Release and operations | Proposed | Re-run public-boundary, recovery, backup, migration, and operator checks for the rebuilt product. | Review release checklist and rollback plan. | Clean-clone/public-boundary proof plus documented private deployment verification. |
+
+### Exploratory work currently present
+
+The original exploratory work has now been reconciled into the R1–R7 batch:
+
+- an ntfy adapter and associated configuration/documentation changes
+- authenticated runner snapshot/Done API endpoints
+- a first Workshop connection and live-state UI draft
+- a Docker Compose deployment that starts the runner and loopback-only API
+
+Review R0 should decide whether to keep, revise, or discard each item before
+reviewing R1.
+
+R0 inventory and recommended disposition: [docs/rebuild-r0-rebaseline.md](docs/rebuild-r0-rebaseline.md).
+
+### Phase-by-phase working rule
+
+For every rebuild phase:
+
+1. Write or update the focused failing tests/contract first.
+2. Implement the smallest change that satisfies the contract.
+3. Run the phase checks plus relevant Pulse and Workshop checks.
+4. Review the complete R1–R7 batch and mark phases accepted only after the
+   consolidated handoff.
 
 ## TDD Methodology
 
@@ -79,13 +134,12 @@ The mature version should let a user:
 - review what happened and when
 - rotate secrets and back up state without exposing real obligations publicly
 
-Pulse should stay calm and opinionated. If an obligation is due, the system should not offer snooze, dismiss, skip, or "remind me later" as primary escape hatches.
+Pulse should stay calm and opinionated. If an obligation is due, the system offers only a fixed 30-minute Snooze and Done; it does not offer dismiss, skip, or an open-ended "remind me later" escape hatch.
 
 ## Product Non-Goals
 
 Do not build these into the MVP:
 
-- snooze
 - dismiss
 - skip
 - task projects
@@ -193,7 +247,7 @@ pulses:
       time: "09:00"
       timezone: America/Los_Angeles
     notificationPolicy:
-      channels: [sms]
+      channels: [ntfy]
       repeatEveryMinutes: 30
 ```
 
@@ -362,7 +416,7 @@ type NotificationAdapter = {
 MVP adapters:
 
 - console adapter for tests and local demo
-- Twilio SMS adapter for practical phone delivery
+- ntfy adapter for Android push delivery
 
 Phone-friendly delivery matters because Pulse must reach the user where they will actually notice it.
 
@@ -592,7 +646,7 @@ Acceptance:
 
 - A due pulse keeps notifying until completion is recorded.
 
-## Phase 5: Notification Adapters
+## Phase 5: Android Push Notification Adapters
 
 Goal:
 
@@ -601,21 +655,21 @@ Send real notifications through documented adapters without coupling them to cor
 TDD entry gate:
 
 - Write adapter interface tests with a fake adapter first.
-- Write mocked Twilio transport tests before implementing the SMS adapter.
+- Write mocked ntfy HTTP transport tests before implementing Android push.
 - Write failure logging and retry tests before wiring adapters into the runner.
 
 Deliverables:
 
 - notification adapter interface
 - console adapter
-- Twilio SMS adapter
+- ntfy Android push adapter
 - adapter result logging
 - adapter setup docs
 
 Required tests:
 
 - console adapter records expected payload
-- Twilio SMS adapter can be tested with safe mocked transport
+- ntfy payloads/config errors can be tested with a safe mocked transport
 - adapter failures are recorded and retried according to policy
 - notification payload avoids leaking secrets in logs
 
@@ -657,13 +711,13 @@ Acceptance:
 
 - A user can deploy their own private runner without needing private instructions from the project author.
 
-## Phase 7: Minimal Management UI
+## Phase 7: Workshop Management UI
 
-Status: Complete.
+Status: Rebuild.
 
 Goal:
 
-Give users a small interface for due state, completion, and history.
+Give users a Workshop-owned interface for due state, completion, and history.
 
 TDD entry gate:
 
@@ -673,29 +727,26 @@ TDD entry gate:
 
 Deliverables:
 
-- active occurrence view in `renderPulseManagementPage`
-- upcoming occurrence view in `renderPulseManagementPage`
-- recent history view in `renderPulseManagementPage`
-- Done action through `createPulseUiServer`
+- active occurrence view in Workshop
+- upcoming occurrence view in Workshop
+- recent history view in Workshop
+- Done action through the private Pulse runner contract
 - optional completion note
 - runner health display
-- `bin/pulse-ui.mjs` local UI command
+- no parallel Pulse web UI
 
 Required tests:
 
-- due occurrence appears in `test/phase7.test.mjs`
-- Done action records completion in `test/phase7.test.mjs`
-- completed occurrence moves to history in `test/phase7.test.mjs`
-- notification state shows last attempt in `test/phase7.test.mjs`
-- UI does not expose snooze or dismiss actions in `test/phase7.test.mjs`
+- Workshop tests cover due, upcoming, history, Done, and the absence of snooze/dismiss.
+- Pulse contract tests prove Done persists without giving Workshop direct state ownership.
 
 Acceptance:
 
-- The core loop is operable without editing state by hand through `node bin/pulse-ui.mjs`.
+- The core loop is operable through Workshop without copying private state into Workshop.
 
 ## Phase 8: Workshop Integration
 
-Status: Complete.
+Status: Rebuild.
 
 Goal:
 

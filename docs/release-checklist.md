@@ -15,7 +15,7 @@ npm run format:check
 
 ## Data Safety
 
-- Create a backup with `node bin/pulse-state.mjs backup --backup-dir private/backups`.
+- Create a backup with `node bin/pulse-state.mjs backup --backup-dir "$PULSE_PRIVATE_ROOT/backups"`.
 - Export state with `node bin/pulse-state.mjs export`.
 - Import the exported file into a disposable state path.
 - Confirm completion history survives restore.
@@ -24,7 +24,7 @@ npm run format:check
 ## Security
 
 - Confirm `.env` is not committed.
-- Confirm Twilio credentials are set through private environment variables.
+- Confirm ntfy topics/tokens are set through private environment variables.
 - Rotate secrets after any accidental log exposure.
 - Keep runner logs private.
 - Review [security-and-privacy.md](security-and-privacy.md).

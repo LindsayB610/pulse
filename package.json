@@ -9,24 +9,35 @@
     "pulse-done": "./bin/pulse-done.mjs",
     "pulse-runner": "./bin/pulse-runner.mjs",
     "pulse-state": "./bin/pulse-state.mjs",
-    "pulse-ui": "./bin/pulse-ui.mjs"
+    "pulse-api": "./bin/pulse-api.mjs"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./workshop-plugin": { "types": "./plugin/dist/index.d.ts", "import": "./plugin/dist/index.js" }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "build:plugin": "npm --prefix plugin run build",
+    "prepare": "npm run build && npm run build:plugin",
     "docs:check": "node scripts/check-doc-links.mjs",
     "format:check": "node scripts/check-format.mjs",
     "lint": "node scripts/lint-public-boundary.mjs",
-    "test": "npm run build && node --test test/*.test.mjs",
+    "smoke:compose": "node scripts/smoke-compose.mjs",
+    "test": "npm run build && npm run build:plugin && node --test test/*.test.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
     "@types/node": "^26.0.1",
+    "@types/react": "^19.0.0",
+    "react": "^19.0.0",
     "typescript": "^5.5.4"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
+    "@netlify/blobs": "^10.7.12",
+    "@netlify/functions": "^5.3.0",
     "yaml": "^2.9.0"
   }
 }

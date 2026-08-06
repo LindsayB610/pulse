@@ -42,6 +42,8 @@ export type PulseOccurrence = {
   state: "scheduled" | "due" | "done";
   completedAt?: string;
   completionNote?: string;
+  snoozedAt?: string;
+  snoozeCount?: number;
 };
 
 export type OccurrenceAction =
@@ -51,7 +53,12 @@ export type OccurrenceAction =
       completionNote?: string;
     }
   | {
-      type: "snooze" | "dismiss" | "skip" | "seen";
+      type: "snooze";
+      at: Date;
+      until: Date;
+    }
+  | {
+      type: "dismiss" | "skip" | "seen";
       at: Date;
     };
 
@@ -60,6 +67,7 @@ export type PulseEventType =
   | "occurrence_scheduled"
   | "occurrence_became_due"
   | "notification_sent"
+  | "occurrence_snoozed"
   | "occurrence_completed";
 
 export type PulseEvent = {
@@ -211,6 +219,22 @@ export function applyOccurrenceAction(
   occurrence: PulseOccurrence,
   action: OccurrenceAction,
 ): PulseOccurrence {
+  if (action.type === "snooze") {
+    if (occurrence.state !== "due") {
+      throw new Error("Only due occurrences can be snoozed.");
+    }
+    if (action.until.getTime() <= action.at.getTime()) {
+      throw new Error("Snooze time must be after the acknowledgement time.");
+    }
+    return {
+      ...occurrence,
+      dueAt: action.until.toISOString(),
+      state: "scheduled",
+      snoozedAt: action.at.toISOString(),
+      snoozeCount: (occurrence.snoozeCount ?? 0) + 1,
+    };
+  }
+
   if (action.type !== "done") {
     throw new Error(`Unsupported occurrence action: ${action.type}. Mark Done to stop an active pulse.`);
   }

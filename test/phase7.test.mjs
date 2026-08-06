@@ -8,7 +8,6 @@ import { test } from "node:test";
 import {
   createMemoryPulseStateStore,
   createPulseUiServer,
-  renderPulseManagementPage,
 } from "../dist/index.js";
 
 const root = new URL("../", import.meta.url);
@@ -27,7 +26,7 @@ const pulses = [
       timezone: "America/New_York",
     },
     notificationPolicy: {
-      channels: ["sms"],
+      channels: ["ntfy"],
       repeatEveryMinutes: 30,
     },
   },
@@ -77,7 +76,7 @@ function createUiFixture() {
         type: "notification_sent",
         at: "2026-06-28T16:00:00.000Z",
         metadata: {
-          channel: "sms",
+          channel: "ntfy",
           ok: true,
           detail: "sent to [redacted]",
         },
@@ -86,27 +85,11 @@ function createUiFixture() {
   };
 }
 
-test("phase 7 UI renders due, upcoming, history, notification state, and no snooze controls", () => {
-  const html = renderPulseManagementPage({
-    pulses,
-    state: createUiFixture(),
-    now,
-    runnerHealth: {
-      status: "running",
-      checkedAt: now,
-    },
-  });
+test("runner server exposes no standalone HTML management page", async () => {
+  const ui = createPulseUiServer({ pulses, stateStore: createMemoryPulseStateStore(createUiFixture()), apiToken: "token" });
+  const response = await ui.handle(new Request("http://pulse.local/"));
 
-  assert.match(html, /Weekly check/);
-  assert.match(html, /Confirm the weekly task is complete\./);
-  assert.match(html, /Upcoming check/);
-  assert.match(html, /Finished last week\./);
-  assert.match(html, /Last notification/);
-  assert.match(html, /sms/);
-  assert.match(html, /running/);
-  assert.match(html, /name="completionNote"/);
-  assert.doesNotMatch(html, /snooze/i);
-  assert.doesNotMatch(html, /dismiss/i);
+  assert.equal(response.status, 404);
 });
 
 test("phase 7 Done action records completion, moves occurrence to history, and stops active state", async () => {
@@ -115,13 +98,15 @@ test("phase 7 Done action records completion, moves occurrence to history, and s
     pulses,
     stateStore,
     now: () => now,
+    apiToken: "workshop-private-token",
   });
 
   const response = await ui.handle(
-    new Request("http://pulse.local/occurrences/weekly-check%3A2026-06-28T13%3A00%3A00.000Z/done", {
+    new Request("http://pulse.local/api/v1/occurrences/weekly-check%3A2026-06-28T13%3A00%3A00.000Z/done", {
       method: "POST",
       body: new URLSearchParams({ completionNote: "Done from UI." }),
       headers: {
+        authorization: "Bearer workshop-private-token",
         "content-type": "application/x-www-form-urlencoded",
       },
     }),
@@ -131,15 +116,11 @@ test("phase 7 Done action records completion, moves occurrence to history, and s
     (occurrence) => occurrence.id === "weekly-check:2026-06-28T13:00:00.000Z",
   );
 
-  assert.equal(response.status, 303);
-  assert.equal(response.headers.get("location"), "/");
+  assert.equal(response.status, 200);
   assert.equal(completed?.state, "done");
   assert.equal(completed?.completionNote, "Done from UI.");
   assert.equal(state.events.at(-1)?.type, "occurrence_completed");
 
-  const html = await (await ui.handle(new Request("http://pulse.local/"))).text();
-  assert.match(html, /Done from UI\./);
-  assert.doesNotMatch(html, /value="weekly-check:2026-06-28T13:00:00.000Z"/);
 });
 
 test("phase 7 Done action handles stale completion attempts without a server error", async () => {
@@ -148,17 +129,19 @@ test("phase 7 Done action handles stale completion attempts without a server err
     pulses,
     stateStore,
     now: () => now,
+    apiToken: "workshop-private-token",
   });
   const request = () =>
-    new Request("http://pulse.local/occurrences/weekly-check%3A2026-06-28T13%3A00%3A00.000Z/done", {
+    new Request("http://pulse.local/api/v1/occurrences/weekly-check%3A2026-06-28T13%3A00%3A00.000Z/done", {
       method: "POST",
       body: new URLSearchParams({ completionNote: "Double submit." }),
       headers: {
+        authorization: "Bearer workshop-private-token",
         "content-type": "application/x-www-form-urlencoded",
       },
     });
 
-  assert.equal((await ui.handle(request())).status, 303);
+  assert.equal((await ui.handle(request())).status, 200);
   const staleResponse = await ui.handle(request());
   const state = stateStore.read();
 
@@ -167,28 +150,81 @@ test("phase 7 Done action handles stale completion attempts without a server err
   assert.equal(state.events.filter((event) => event.type === "occurrence_completed").length, 1);
 });
 
-test("phase 7 UI listen serves the management page over local HTTP", async () => {
+test("private runner API gives Workshop an authorized snapshot and Done action", async () => {
   const stateStore = createMemoryPulseStateStore(createUiFixture());
   const ui = createPulseUiServer({
     pulses,
     stateStore,
     now: () => now,
+    apiToken: "workshop-private-token",
+    allowedOrigins: ["http://127.0.0.1:1420"],
+  });
+
+  const unauthorized = await ui.handle(new Request("http://pulse.local/api/v1/snapshot"));
+  assert.equal(unauthorized.status, 401);
+
+  const crossOrigin = await ui.handle(
+    new Request("http://pulse.local/api/v1/snapshot", {
+      headers: { origin: "https://untrusted.example" },
+    }),
+  );
+  assert.equal(crossOrigin.headers.get("access-control-allow-origin"), null);
+
+  const preflight = await ui.handle(
+    new Request("http://pulse.local/api/v1/snapshot", {
+      method: "OPTIONS",
+      headers: { origin: "http://127.0.0.1:1420" },
+    }),
+  );
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get("access-control-allow-origin"), "http://127.0.0.1:1420");
+
+  const snapshot = await ui.handle(
+    new Request("http://pulse.local/api/v1/snapshot", {
+      headers: { authorization: "Bearer workshop-private-token" },
+    }),
+  );
+  assert.equal(snapshot.status, 200);
+  assert.equal((await snapshot.json()).state.occurrences.length, 3);
+
+  const completed = await ui.handle(
+    new Request("http://pulse.local/api/v1/occurrences/weekly-check%3A2026-06-28T13%3A00%3A00.000Z/done", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer workshop-private-token",
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ completionNote: "Done from Workshop." }),
+    }),
+  );
+  assert.equal(completed.status, 200);
+  assert.equal((await completed.json()).occurrence.state, "done");
+  assert.equal(stateStore.read().occurrences[0].completionNote, "Done from Workshop.");
+});
+
+test("phase 7 API listen serves an authorized snapshot over local HTTP", async () => {
+  const stateStore = createMemoryPulseStateStore(createUiFixture());
+  const ui = createPulseUiServer({
+    pulses,
+    stateStore,
+    now: () => now,
+    apiToken: "workshop-private-token",
   });
   const running = await ui.listen({ host: "127.0.0.1", port: 0 });
 
   try {
-    const response = await fetch(`http://127.0.0.1:${running.port}/`);
-    const html = await response.text();
+    const response = await fetch(`http://127.0.0.1:${running.port}/api/v1/snapshot`, { headers: { authorization: "Bearer workshop-private-token" } });
+    const snapshot = await response.json();
 
     assert.equal(response.status, 200);
-    assert.match(html, /Weekly check/);
-    assert.match(response.headers.get("content-type") ?? "", /text\/html/);
+    assert.equal(snapshot.pulses[0].title, "Weekly check");
+    assert.match(response.headers.get("content-type") ?? "", /application\/json/);
   } finally {
     await running.close();
   }
 });
 
-test("phase 7 UI command starts with private config and state paths", () => {
+test("Pulse API command starts with private config and state paths", () => {
   const dir = mkdtempSync(join(tmpdir(), "pulse-phase7-ui-"));
   const configPath = join(dir, "pulses.yaml");
   const statePath = join(dir, "state.json");
@@ -209,21 +245,41 @@ test("phase 7 UI command starts with private config and state paths", () => {
   writeFileSync(statePath, `${JSON.stringify(createUiFixture(), null, 2)}\n`);
 
   try {
-    const result = spawnSync(process.execPath, ["bin/pulse-ui.mjs", "--once"], {
+    const result = spawnSync(process.execPath, ["bin/pulse-api.mjs", "--once"], {
       cwd: rootPath,
       env: {
         ...process.env,
         PULSE_CONFIG_PATH: configPath,
         PULSE_STATE_PATH: statePath,
+        PULSE_RUNNER_MODE: "demo",
+        PULSE_API_TOKEN: "workshop-private-token-with-at-least-32-characters",
       },
       encoding: "utf8",
     });
 
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /"ui":true/);
+    assert.match(result.stdout, /"api":true/);
     assert.match(result.stdout, /"port":8787/);
     assert.match(readFileSync(statePath, "utf8"), /weekly-check/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("Pulse API fails closed without an explicit mode and private bearer token", () => {
+  const missingMode = spawnSync(process.execPath, ["bin/pulse-api.mjs", "--once"], {
+    cwd: rootPath,
+    env: { ...process.env, PULSE_CONFIG_PATH: "pulses.example.yaml", PULSE_STATE_PATH: "state.json" },
+    encoding: "utf8",
+  });
+  assert.notEqual(missingMode.status, 0);
+  assert.match(missingMode.stderr, /PULSE_RUNNER_MODE/);
+
+  const missingToken = spawnSync(process.execPath, ["bin/pulse-api.mjs", "--once"], {
+    cwd: rootPath,
+    env: { ...process.env, PULSE_RUNNER_MODE: "demo", PULSE_CONFIG_PATH: "pulses.example.yaml", PULSE_STATE_PATH: "state.json" },
+    encoding: "utf8",
+  });
+  assert.notEqual(missingToken.status, 0);
+  assert.match(missingToken.stderr, /PULSE_API_TOKEN/);
 });

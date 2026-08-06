@@ -15,7 +15,7 @@ Current state version:
 ## Migration Plan
 
 1. Stop the runner.
-2. Back up `private/state.json`.
+2. Back up `$PULSE_PRIVATE_ROOT/state.json` outside the public checkout.
 3. Export the existing state with `node bin/pulse-state.mjs export`.
 4. Run `npm test` before changing release code.
 5. Apply the migration.

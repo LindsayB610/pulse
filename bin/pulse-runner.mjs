@@ -6,7 +6,23 @@ import {
   getPulseEnvConfig,
   loadPrivatePulseConfig,
   runPulseRunnerTick,
+  validatePrivateDeliveryEnv,
+  writePulseRunnerHeartbeat,
 } from "../dist/index.js";
+
+const runnerMode = process.env.PULSE_RUNNER_MODE;
+if (runnerMode !== "demo" && runnerMode !== "production") {
+  console.error("Set PULSE_RUNNER_MODE to demo or production before running Pulse.");
+  process.exit(1);
+}
+if (runnerMode === "production") {
+  try {
+    validatePrivateDeliveryEnv(process.env);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
+}
 
 const env = getPulseEnvConfig(process.env);
 
@@ -18,7 +34,8 @@ if (!env.configPath || !env.statePath) {
 const config = loadPrivatePulseConfig(env.configPath);
 const stateStore = createJsonPulseStateStore(env.statePath);
 const notifier = createNotificationDispatcherFromEnv(process.env);
-const redactValues = Object.values(env.secrets);
+const healthPath = process.env.PULSE_RUNNER_HEALTH_PATH ?? `${env.statePath}.runner-health.json`;
+const redactValues = [...Object.values(env.secrets), ...Object.values(env.recipients)];
 const tickInput = {
   now: new Date(),
   pulses: config.pulses,
@@ -35,6 +52,7 @@ if (process.argv.includes("--watch")) {
     notifier,
     redactValues,
     intervalMs,
+    onTick: () => writePulseRunnerHeartbeat(healthPath),
   });
 
   runner.start();
@@ -45,5 +63,6 @@ if (process.argv.includes("--watch")) {
   });
 } else {
   const result = await runPulseRunnerTick(tickInput);
+  writePulseRunnerHeartbeat(healthPath);
   console.log(JSON.stringify(result));
 }

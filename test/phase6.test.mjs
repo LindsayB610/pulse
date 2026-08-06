@@ -34,7 +34,8 @@ test("local demo runner command smokes with public sample config", () => {
         ...process.env,
         PULSE_CONFIG_PATH: join(rootPath, "pulses.example.yaml"),
         PULSE_STATE_PATH: statePath,
-        PULSE_NOTIFICATION_CHANNEL: "console",
+        PULSE_RUNNER_MODE: "demo",
+        PULSE_NOTIFY_PROVIDER: "console",
       },
       encoding: "utf8",
     });
@@ -94,17 +95,28 @@ test("deployment guide has an explicit success checklist", () => {
   const guide = read("docs/deploy-runner.md");
 
   assert.match(guide, /## Success Checklist/);
-  assert.match(guide, /private\/pulses\.yaml/);
-  assert.match(guide, /docker compose -f deploy\/docker-compose\.yml up -d --build/);
-  assert.match(guide, /Confirm a Twilio SMS arrives/);
-  assert.match(guide, /Confirm notifications stop after Done/);
+  assert.match(guide, /Netlify scheduled functions/);
+  assert.match(guide, /PULSE_NOTIFICATION_ACTION_SECRET/);
+  assert.match(guide, /ntfy delivers Android Done and Snooze actions/);
+  assert.match(guide, /completed occurrence stops repeating/);
 });
 
-test("docker compose template keeps private runner data outside git", () => {
+test("docker compose template keeps private runner data outside git and API loopback-only", () => {
   const compose = read("deploy/docker-compose.yml");
 
-  assert.match(compose, /\.\.\/private:\/pulse\/private/);
+  assert.match(compose, /\$\{PULSE_PRIVATE_ROOT:\?Set PULSE_PRIVATE_ROOT to an absolute directory outside the public repo\}:\/pulse\/private/);
   assert.match(compose, /PULSE_CONFIG_PATH: \/pulse\/private\/pulses\.yaml/);
   assert.match(compose, /PULSE_STATE_PATH: \/pulse\/private\/state\.json/);
-  assert.doesNotMatch(compose, /PULSE_TWILIO_AUTH_TOKEN: .+/);
+  assert.doesNotMatch(compose, /PULSE_NTFY_TOKEN: .+/);
+  assert.match(compose, /pulse-api/);
+  assert.match(compose, /"127\.0\.0\.1:8787:8787"/);
+  assert.doesNotMatch(compose, /"0\.0\.0\.0:8787:8787"/);
+  assert.doesNotMatch(compose, /\.\.\/private/);
+});
+
+test("Compose smoke script verifies the runner heartbeat and authenticated loopback API when Docker is available", () => {
+  const script = read("scripts/smoke-compose.mjs");
+  assert.match(script, /pulse-compose\.mjs/);
+  assert.match(script, /runnerHealth.*running/);
+  assert.match(script, /127\.0\.0\.1:8787\/api\/v1\/snapshot/);
 });
