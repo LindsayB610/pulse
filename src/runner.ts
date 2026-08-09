@@ -1,4 +1,5 @@
 import {
+  applyOccurrenceAction,
   createPulseEvent,
   generateNextOccurrence,
   markOccurrenceDue,
@@ -46,6 +47,8 @@ export type PulseRunnerTickResult = {
 
 const defaultRepeatEveryMinutes = 60;
 const defaultChannels = ["console"];
+const automaticSnoozeGraceMinutes = 2;
+const automaticSnoozeMinutes = 30;
 
 export async function runPulseRunnerTick(input: PulseRunnerTickInput): Promise<PulseRunnerTickResult> {
   return input.stateStore.withExclusive(() => runPulseRunnerTickExclusive(input));
@@ -85,11 +88,16 @@ async function runPulseRunnerTickExclusive(input: PulseRunnerTickInput): Promise
     }
   }
 
-  for (const occurrence of state.occurrences) {
+  for (let occurrenceIndex = 0; occurrenceIndex < state.occurrences.length; occurrenceIndex += 1) {
+    let occurrence = state.occurrences[occurrenceIndex];
+    if (occurrence === undefined) continue;
+    let justBecameDue = false;
     if (occurrence.state === "scheduled") {
       const nextState = markOccurrenceDue(occurrence, input.now);
       if (nextState !== occurrence && nextState.state === "due") {
-        Object.assign(occurrence, nextState);
+        state.occurrences[occurrenceIndex] = nextState;
+        occurrence = nextState;
+        justBecameDue = true;
         state.events.push(
           createPulseEvent({
             pulseId: occurrence.pulseId,
@@ -113,6 +121,25 @@ async function runPulseRunnerTickExclusive(input: PulseRunnerTickInput): Promise
 
     const channels = pulse.notificationPolicy?.channels ?? defaultChannels;
     const repeatEveryMinutes = pulse.notificationPolicy?.repeatEveryMinutes ?? defaultRepeatEveryMinutes;
+
+    if (!justBecameDue && shouldAutomaticallySnooze(state.events, occurrence, input.now)) {
+      const snoozed = applyOccurrenceAction(occurrence, {
+        type: "snooze",
+        at: input.now,
+        until: new Date(input.now.getTime() + automaticSnoozeMinutes * 60 * 1000),
+      });
+      Object.assign(occurrence, snoozed);
+      state.events.push(
+        createPulseEvent({
+          pulseId: pulse.id,
+          occurrenceId: occurrence.id,
+          type: "occurrence_snoozed",
+          at: input.now,
+          metadata: { until: snoozed.dueAt, source: "automatic-no-action" },
+        }),
+      );
+      continue;
+    }
 
     for (const channel of channels) {
       if (!shouldSendNotification(state.events, occurrence, channel, input.now, repeatEveryMinutes)) {
@@ -145,6 +172,21 @@ async function runPulseRunnerTickExclusive(input: PulseRunnerTickInput): Promise
 
   input.stateStore.write(state);
   return result;
+}
+
+function shouldAutomaticallySnooze(
+  events: PulseEvent[],
+  occurrence: PulseOccurrence,
+  now: Date,
+): boolean {
+  const lastSuccessfulSendAt = events
+    .filter((event) => event.type === "notification_sent" && event.occurrenceId === occurrence.id && event.metadata?.ok !== false)
+    .map((event) => Date.parse(event.at))
+    .filter(Number.isFinite)
+    .sort((left, right) => right - left)[0];
+
+  return lastSuccessfulSendAt !== undefined
+    && now.getTime() - lastSuccessfulSendAt >= automaticSnoozeGraceMinutes * 60 * 1000;
 }
 
 /**

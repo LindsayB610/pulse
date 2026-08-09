@@ -80,7 +80,7 @@ test("runner sends when a scheduled occurrence becomes due", async () => {
   assert.equal(restored.events.some((event) => event.type === "notification_sent"), true);
 });
 
-test("runner repeats notifications according to policy while still due", async () => {
+test("runner automatically snoozes an unanswered notification after two minutes and notifies again after thirty", async () => {
   const state = createEmptyPulseState();
   state.occurrences.push({
     id: "weekly-demo-check:2026-06-28T16:00:00.000Z",
@@ -100,13 +100,28 @@ test("runner repeats notifications according to policy while still due", async (
   const notifier = createFakeNotifier();
 
   await runPulseRunnerTick({
-    now: new Date("2026-06-28T16:30:00.000Z"),
+    now: new Date("2026-06-28T16:02:00.000Z"),
+    pulses: [weeklyPulse],
+    stateStore: store,
+    notifier,
+  });
+
+  const automaticallySnoozed = store.read().occurrences[0];
+  assert.equal(notifier.sends.length, 0);
+  assert.equal(automaticallySnoozed.state, "scheduled");
+  assert.equal(automaticallySnoozed.dueAt, "2026-06-28T16:32:00.000Z");
+  assert.equal(automaticallySnoozed.snoozeCount, 1);
+  assert.equal(store.read().events.at(-1)?.metadata?.source, "automatic-no-action");
+
+  await runPulseRunnerTick({
+    now: new Date("2026-06-28T16:32:00.000Z"),
     pulses: [weeklyPulse],
     stateStore: store,
     notifier,
   });
 
   assert.equal(notifier.sends.length, 1);
+  assert.equal(store.read().occurrences[0].state, "due");
   assert.equal(store.read().events.filter((event) => event.type === "notification_sent").length, 2);
 });
 

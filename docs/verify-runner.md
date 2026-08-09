@@ -19,8 +19,8 @@ checkout before running the command examples.
 1. The runner creates `state.json`.
 2. The runner schedules an occurrence.
 3. When the occurrence becomes due, the runner sends a notification.
-4. If the occurrence stays due, the runner repeats according to
-   `repeatEveryMinutes`.
+4. If neither notification action is used, wait two minutes and confirm Pulse
+   automatically snoozes the occurrence for thirty minutes.
 5. Tap **Snooze 30 min** on the Android notification and confirm a new
    notification arrives approximately thirty minutes later.
 6. Tap **Done** on that notification.

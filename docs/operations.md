@@ -25,6 +25,10 @@ stops repeat notifications for that occurrence without opening Workshop. Tap
 **Snooze 30 min** to move that same reminder forward thirty minutes; it will
 notify again until you tap Done.
 
+If neither action is taken, Pulse treats the reminder as snoozed after two
+minutes and schedules the next notification for thirty minutes later. The
+notification is not silently dismissed; only Done ends the occurrence.
+
 Workshop's Pulse tool is for creating, pausing, resuming, and deleting
 reminders. The runner remains the source of truth; Workshop does not need to
 be available to acknowledge a phone reminder.
