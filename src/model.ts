@@ -188,8 +188,9 @@ export function markOccurrenceDue(occurrence: PulseOccurrence, now: Date): Pulse
     return occurrence;
   }
 
+  const { snoozedAt: _snoozedAt, snoozeCount: _snoozeCount, ...dueOccurrence } = occurrence;
   return {
-    ...occurrence,
+    ...dueOccurrence,
     state: "due",
   };
 }

@@ -29,6 +29,21 @@ test("scheduled occurrence becomes due when dueAt is reached", () => {
   });
 });
 
+test("a snoozed occurrence clears snooze-only history when it becomes due again", () => {
+  const occurrence = scheduledOccurrence({
+    dueAt: "2026-06-28T16:30:00.000Z",
+    snoozedAt: "2026-06-28T16:00:00.000Z",
+    snoozeCount: 1,
+  });
+
+  assert.deepEqual(markOccurrenceDue(occurrence, new Date("2026-06-28T16:30:00.000Z")), {
+    id: occurrence.id,
+    pulseId: occurrence.pulseId,
+    dueAt: occurrence.dueAt,
+    state: "due",
+  });
+});
+
 test("scheduled occurrence does not become due before dueAt", () => {
   const occurrence = scheduledOccurrence();
   assert.equal(markOccurrenceDue(occurrence, new Date("2026-06-28T15:59:59.999Z")), occurrence);
