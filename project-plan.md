@@ -73,6 +73,10 @@ reviewing R1.
 
 R0 inventory and recommended disposition: [docs/rebuild-r0-rebaseline.md](docs/rebuild-r0-rebaseline.md).
 
+The next Pulse-owned UI build is specified in
+[docs/pulse-product-redesign.md](docs/pulse-product-redesign.md). It is
+intentionally separate from the completed R0–R7 engine rebuild.
+
 ### Phase-by-phase working rule
 
 For every rebuild phase:
