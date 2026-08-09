@@ -137,7 +137,7 @@ Pulse keeps the existing three plugin routes, but each route has a real job.
 | --- | --- | --- |
 | Reminders | The working home | Summary strip, runner-health state, active/paused reminder cards, `New reminder`. |
 | History | Trust and evidence | Completed occurrences, timestamps, snoozes, and an empty state explaining that it fills after completion. |
-| Settings | Connection and delivery | Private-root connection, configured endpoint summary, runner health details, and a safe reconnect path. |
+| Settings | Connection and delivery | Private-root connection, configured endpoint summary, runner health details, and an explicit inline change-folder path. |
 
 The route passed by Workshop must control the rendered content. The current
 view ignores `activeRouteId`; that is a defect, not an aesthetic preference.
@@ -280,9 +280,9 @@ rationale, component inventory, and desktop/narrow evidence remain in
 ### P3 — History and settings
 
 - Render completion/snooze history from the real event/occurrence model.
-- Add runner-health details and the private-root reconnect/recovery surface.
+- Add runner-health details and the private-root change/recovery surface.
 - Tests: chronological ordering, privacy redaction, every health state,
-  reconnect outcome, and empty history.
+  change-folder outcome, and empty history.
 
 ### P4 — Responsive and visual acceptance
 

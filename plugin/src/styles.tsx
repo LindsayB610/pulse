@@ -32,6 +32,8 @@ export const pulseStyles = `
 .pulse-ui__button { min-height: 42px; border: 1px solid var(--pulse-line); border-radius: 11px; background: rgba(255,255,255,.055); padding: 9px 14px; cursor: pointer; font-weight: 750; transition: background .15s ease, border-color .15s ease, transform .15s ease; }
 .pulse-ui__button:hover { background: rgba(255,255,255,.095); border-color: rgba(255,255,255,.2); }
 .pulse-ui__button:active { transform: translateY(1px); }
+.pulse-ui__button:disabled { cursor: not-allowed; opacity: .45; transform: none; }
+.pulse-ui__button:disabled:hover { background: rgba(255,255,255,.055); border-color: var(--pulse-line); }
 .pulse-ui__button--primary { color: #08080a !important; border-color: var(--pulse-yellow); background: var(--pulse-yellow); box-shadow: 0 7px 24px rgba(255,230,0,.14); }
 .pulse-ui__button--primary:hover { background: #fff04a; }
 .pulse-ui__button--danger { color: #ff8dbd; border-color: rgba(255,47,146,.34); }
@@ -78,6 +80,10 @@ export const pulseStyles = `
 .pulse-ui__setting { display: flex; justify-content: space-between; gap: 30px; align-items: center; padding: 19px 20px; border: 1px solid var(--pulse-line); border-radius: 15px; background: var(--pulse-panel); }
 .pulse-ui__setting p { color: var(--pulse-muted); margin: 5px 0 0; font-size: 13px; line-height: 1.5; }
 .pulse-ui__setting code { display: block; max-width: 420px; color: #d8d8dc; overflow-wrap: anywhere; font-size: 12px; }
+.pulse-ui__setting-main { min-width: 0; flex: 1; }
+.pulse-ui__setting-actions { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+.pulse-ui__folder-editor { display: grid; gap: 14px; margin-top: 18px; }
+.pulse-ui__folder-editor .pulse-ui__form-actions-group { justify-content: flex-end; }
 .pulse-ui__notice { margin-top: 18px; color: var(--pulse-muted); font-size: 13px; }
 .pulse-ui__notice[role='alert'] { color: #ff98c4; }
 .pulse-ui__connect { max-width: 700px; padding: 34px; }
@@ -91,6 +97,7 @@ export const pulseStyles = `
   .pulse-ui__stats, .pulse-ui__form-grid, .pulse-ui__timing-grid { grid-template-columns: 1fr; }
   .pulse-ui__actions { align-self: stretch; }
   .pulse-ui__actions .pulse-ui__button { flex: 1; }
+  .pulse-ui__setting-actions { justify-content: space-between; }
   .pulse-ui__history-row { grid-template-columns: 34px minmax(0,1fr); }
   .pulse-ui__history-meta { grid-column: 2; }
 }

@@ -56,7 +56,7 @@ function setControlValue(control, value) {
   control.dispatchEvent(new control.ownerDocument.defaultView.Event("change", { bubbles: true }));
 }
 
-async function mountedPulse(snapshot = fixtureSnapshot, onRouteChange, respond) {
+async function mountedPulse(snapshot = fixtureSnapshot, onRouteChange, respond, onWorkspaceRootChange) {
   const { dom, previous } = installDom();
   const React = await import("react");
   const { act } = React;
@@ -73,7 +73,7 @@ async function mountedPulse(snapshot = fixtureSnapshot, onRouteChange, respond) 
   };
   const root = createRoot(dom.window.document.getElementById("app"));
   const render = async (activeRouteId = "reminders") => {
-    await act(async () => { root.render(React.createElement(PulseManagementView, { activeRouteId, request, workspaceRoot: "/private/pulse", onRouteChange })); });
+    await act(async () => { root.render(React.createElement(PulseManagementView, { activeRouteId, request, workspaceRoot: "/private/pulse", onRouteChange, onWorkspaceRootChange })); });
   };
   const close = async () => {
     await act(async () => { root.unmount(); });
@@ -130,6 +130,32 @@ test("production Pulse UI exposes route-specific history and settings without cr
     assert.match(text, /Private Pulse folder/);
     assert.match(text, /Android push through ntfy/);
     assert.doesNotMatch(mounted.dom.window.document.documentElement.outerHTML, /authorization|bearer|test-notification-token/i);
+  } finally {
+    await mounted.close();
+  }
+});
+
+test("connected settings truthfully reports the folder and changes it inline", async () => {
+  const selected = [];
+  const mounted = await mountedPulse(fixtureSnapshot, undefined, undefined, (root) => selected.push(root));
+  try {
+    await mounted.render("settings");
+    const folderCard = [...mounted.dom.window.document.querySelectorAll(".pulse-ui__setting")]
+      .find((card) => card.textContent.includes("Private Pulse folder"));
+    assert.match(folderCard.textContent, /Connected/);
+    assert.doesNotMatch(folderCard.textContent, /Reconnect/);
+    await mounted.act(async () => {
+      [...folderCard.querySelectorAll("button")].find((button) => button.textContent === "Change folder").click();
+    });
+    const input = mounted.dom.window.document.querySelector('[aria-label="New Pulse private folder"]');
+    assert.equal(input.value, "/private/pulse");
+    const useFolder = [...folderCard.querySelectorAll("button")].find((button) => button.textContent === "Use this folder");
+    assert.equal(useFolder.disabled, true, "the current folder is not a fake reconnect action");
+    await mounted.act(async () => { setControlValue(input, "/different/private/pulse"); });
+    assert.equal(useFolder.disabled, false);
+    await mounted.act(async () => { useFolder.click(); });
+    assert.deepEqual(selected, ["/different/private/pulse"]);
+    assert.equal(mounted.dom.window.document.querySelector('[aria-label="New Pulse private folder"]'), null);
   } finally {
     await mounted.close();
   }
@@ -257,6 +283,55 @@ test("production connection restores the Pulse-owned private folder without hard
   }
 });
 
+test("WorkshopToolView changes a connected folder by value without invoking an undefined host prompt", async () => {
+  const { dom, previous } = installDom();
+  const React = await import("react");
+  const { act } = React;
+  const { createRoot } = await import("react-dom/client");
+  const { WorkshopToolView } = await import("../plugin/dist/index.js");
+  const hostCalls = [];
+  dom.window.__TAURI_INTERNALS__ = {
+    invoke: async (command, args) => {
+      hostCalls.push({ command, args });
+      if (command === "read_secure_service_metadata") return { endpoint: "https://pulse.example" };
+      if (command === "request_configured_secure_service") return { status: 200, body: fixtureSnapshot };
+      throw new Error(`Unexpected host command: ${command}`);
+    },
+  };
+  const selected = [];
+  const root = createRoot(dom.window.document.getElementById("app"));
+  try {
+    await act(async () => {
+      root.render(React.createElement(WorkshopToolView, {
+        activeRouteId: "settings",
+        workspaceRoot: "/private/pulse",
+        requestWorkspaceRoot: (value) => selected.push(value),
+      }));
+    });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+    assert.match(dom.window.document.body.textContent, /Pulse settings/);
+    await act(async () => {
+      [...dom.window.document.querySelectorAll("button")].find((button) => button.textContent === "Change folder").click();
+    });
+    await act(async () => {
+      setControlValue(dom.window.document.querySelector('[aria-label="New Pulse private folder"]'), "/replacement/private/pulse");
+    });
+    await act(async () => {
+      [...dom.window.document.querySelectorAll("button")].find((button) => button.textContent === "Use this folder").click();
+    });
+    assert.deepEqual(selected, ["/replacement/private/pulse"]);
+    assert.equal(selected.includes(undefined), false);
+    assert.equal(dom.window.localStorage.getItem("pulse.privateWorkspaceRoot.v1"), "/replacement/private/pulse");
+    assert.equal(hostCalls.some((call) => call.command === "read_secure_service_metadata"), true);
+  } finally {
+    await act(async () => { root.unmount(); });
+    dom.window.close();
+    globalThis.window = previous.window;
+    globalThis.document = previous.document;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = previous.act;
+  }
+});
+
 test("production navigation reports its route to Workshop and distinguishes a stale runner", async () => {
   const staleSnapshot = { ...fixtureSnapshot, runnerHealth: { status: "stale", checkedAt: "2026-08-09T16:00:00.000Z" } };
   const routeEvents = [];
@@ -273,8 +348,8 @@ test("production navigation reports its route to Workshop and distinguishes a st
   }
 });
 
-test("production dashboard and editor have no automated accessibility violations", async () => {
-  const mounted = await mountedPulse();
+test("production dashboard, editor, and folder settings have no automated accessibility violations", async () => {
+  const mounted = await mountedPulse(fixtureSnapshot, undefined, undefined, () => {});
   try {
     await mounted.render("reminders");
     const axe = await readFile(new URL("../node_modules/axe-core/axe.min.js", import.meta.url), "utf8");
@@ -284,6 +359,12 @@ test("production dashboard and editor have no automated accessibility violations
     });
     assert.deepEqual(Array.from(result.violations, (violation) => violation.id), []);
     await mounted.act(async () => { [...mounted.dom.window.document.querySelectorAll("button")].find((button) => button.textContent.includes("New reminder")).click(); });
+    result = await mounted.dom.window.axe.run(mounted.dom.window.document, {
+      rules: { "color-contrast": { enabled: false }, region: { enabled: false } },
+    });
+    assert.deepEqual(Array.from(result.violations, (violation) => violation.id), []);
+    await mounted.render("settings");
+    await mounted.act(async () => { [...mounted.dom.window.document.querySelectorAll("button")].find((button) => button.textContent === "Change folder").click(); });
     result = await mounted.dom.window.axe.run(mounted.dom.window.document, {
       rules: { "color-contrast": { enabled: false }, region: { enabled: false } },
     });

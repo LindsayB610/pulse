@@ -189,14 +189,18 @@ export function WorkshopToolView({ activeRouteId = "reminders", workspaceRoot, r
     setConnectionAttempt((attempt) => attempt + 1);
     requestWorkspaceRoot(selectedRoot || undefined);
   };
-  const reconnect = () => {
-    setConnectionAttempt((attempt) => attempt + 1);
-    requestWorkspaceRoot(undefined);
+  const changeWorkspaceRoot = (nextRoot: string) => {
+    rememberedRoot.current = nextRoot;
+    window.localStorage.setItem(privateRootStorageKey, nextRoot);
+    setRoot(nextRoot);
+    setRequest(null);
+    setConnectionStatus("Connecting Pulse…");
+    requestWorkspaceRoot(nextRoot);
   };
   return <section className="pulse-ui" aria-label="Pulse">
     <style>{pulseStyles}</style>
     {request
-      ? <PulseManagementView request={request} activeRouteId={route} workspaceRoot={workspaceRoot} onRouteChange={selectRoute} onReconnect={reconnect} />
+      ? <PulseManagementView request={request} activeRouteId={route} workspaceRoot={workspaceRoot} onRouteChange={selectRoute} onWorkspaceRootChange={changeWorkspaceRoot} />
       : <section className="pulse-ui__page pulse-ui__panel pulse-ui__connect" aria-label="Pulse connection">
           <p className="pulse-ui__eyebrow">Private connection</p>
           <h2>Connect your reminders</h2>
@@ -216,11 +220,11 @@ type ManagementProps = {
   activeRouteId?: string;
   workspaceRoot?: string;
   onRouteChange?: (route: RouteId) => void;
-  onReconnect?: () => void;
+  onWorkspaceRootChange?: (root: string) => void;
 };
 
 /** Pulse owns this entire management surface; Workshop only supplies a secure requester. */
-export function PulseManagementView({ request, activeRouteId = "reminders", workspaceRoot, onRouteChange, onReconnect }: ManagementProps): React.ReactElement {
+export function PulseManagementView({ request, activeRouteId = "reminders", workspaceRoot, onRouteChange, onWorkspaceRootChange }: ManagementProps): React.ReactElement {
   const service = useMemo(() => createPulseService(request), [request]);
   const [route, setRoute] = useState<RouteId>(normalizeRoute(activeRouteId));
   const [snapshot, setSnapshot] = useState<PulseSnapshot>(emptySnapshot());
@@ -279,7 +283,7 @@ export function PulseManagementView({ request, activeRouteId = "reminders", work
         }} />
       : <RemindersPage snapshot={snapshot} loading={loading} onNew={() => setEditing("new")} onEdit={setEditing} onToggle={(pulse) => void toggle(pulse)} />)}
     {route === "history" && <HistoryPage snapshot={snapshot} loading={loading} />}
-    {route === "settings" && <SettingsPage snapshot={snapshot} workspaceRoot={workspaceRoot} onReconnect={onReconnect} />}
+    {route === "settings" && <SettingsPage snapshot={snapshot} workspaceRoot={workspaceRoot} onWorkspaceRootChange={onWorkspaceRootChange} />}
     {error && <p className="pulse-ui__notice" role="alert">{error}</p>}
     {!error && status && <p className="pulse-ui__notice" role="status">{status}</p>}
     {deleting && <DeleteDialog pulse={deleting} onCancel={() => setDeleting(null)} onConfirm={() => void remove(deleting)} />}
@@ -361,12 +365,24 @@ function HistoryPage({ snapshot, loading }: { snapshot: PulseSnapshot; loading: 
   })}</div></section>;
 }
 
-function SettingsPage({ snapshot, workspaceRoot, onReconnect }: { snapshot: PulseSnapshot; workspaceRoot?: string; onReconnect?: () => void }): React.ReactElement {
+function SettingsPage({ snapshot, workspaceRoot, onWorkspaceRootChange }: { snapshot: PulseSnapshot; workspaceRoot?: string; onWorkspaceRootChange?: (root: string) => void }): React.ReactElement {
   const online = runnerIsOnline(snapshot);
   const stale = snapshot.runnerHealth?.status === "stale";
+  const [changingFolder, setChangingFolder] = useState(false);
+  const [nextRoot, setNextRoot] = useState(workspaceRoot ?? "");
+  useEffect(() => {
+    if (!changingFolder) setNextRoot(workspaceRoot ?? "");
+  }, [changingFolder, workspaceRoot]);
+  const selectedRoot = nextRoot.trim();
+  const canChangeFolder = selectedRoot !== "" && selectedRoot !== workspaceRoot;
   return <section className="pulse-ui__page" aria-labelledby="pulse-settings-heading"><header className="pulse-ui__page-head"><div><p className="pulse-ui__eyebrow">Connection</p><h2 id="pulse-settings-heading">Pulse settings</h2><p className="pulse-ui__lede">See how this installation reaches your private runner. Secrets remain outside the webview.</p></div></header><div className="pulse-ui__settings">
-    <div className="pulse-ui__setting"><div><h3>{online ? "Runner is online" : stale ? "Runner heartbeat is stale" : "Runner status unavailable"}</h3><p>{online ? `Last checked ${formatDate(snapshot.runnerHealth?.checkedAt)}` : stale ? `The last check was ${formatDate(snapshot.runnerHealth?.checkedAt)}. Notifications may be delayed until the runner resumes.` : "Pulse has not received a current health report."}</p></div><span className="pulse-ui__badge">{online ? "Connected" : stale ? "Needs attention" : "Unknown"}</span></div>
-    <div className="pulse-ui__setting"><div><h3>Private Pulse folder</h3><p>Reminder definitions and the service configuration live outside the public Pulse package.</p>{workspaceRoot && <code>{workspaceRoot}</code>}</div>{onReconnect && <button className="pulse-ui__button" type="button" onClick={onReconnect}>Reconnect</button>}</div>
+    <div className="pulse-ui__setting"><div><h3>{online ? "Runner is online" : stale ? "Runner heartbeat is stale" : "Runner status unavailable"}</h3><p>{online ? `Last checked ${formatDate(snapshot.runnerHealth?.checkedAt)}` : stale ? `The last check was ${formatDate(snapshot.runnerHealth?.checkedAt)}. Notifications may be delayed until the runner resumes.` : "Pulse has not received a current health report."}</p></div><span className="pulse-ui__badge">{online ? "Online" : stale ? "Needs attention" : "Unknown"}</span></div>
+    <div className="pulse-ui__setting pulse-ui__setting--folder"><div className="pulse-ui__setting-main"><h3>Private Pulse folder</h3><p>Reminder definitions and the service configuration live outside the public Pulse package.</p>{workspaceRoot && <code>{workspaceRoot}</code>}{changingFolder && <form className="pulse-ui__folder-editor" onSubmit={(event) => {
+      event.preventDefault();
+      if (!canChangeFolder) return;
+      onWorkspaceRootChange?.(selectedRoot);
+      setChangingFolder(false);
+    }}><label className="pulse-ui__field">New private Pulse folder<input autoFocus aria-label="New Pulse private folder" value={nextRoot} onChange={(event) => setNextRoot(event.target.value)} /><small>Choose a different folder containing pulse.config.json. The credential remains in the macOS Keychain.</small></label><div className="pulse-ui__form-actions-group"><button className="pulse-ui__button" type="button" onClick={() => setChangingFolder(false)}>Cancel</button><button className="pulse-ui__button pulse-ui__button--primary" type="submit" disabled={!canChangeFolder}>Use this folder</button></div></form>}</div><div className="pulse-ui__setting-actions"><span className="pulse-ui__badge">Connected</span>{onWorkspaceRootChange && !changingFolder && <button className="pulse-ui__button" type="button" onClick={() => setChangingFolder(true)}>Change folder</button>}</div></div>
     <div className="pulse-ui__setting"><div><h3>Android push through ntfy</h3><p>The notification credential is stored in the macOS Keychain and injected by Workshop's constrained native service. Pulse never receives the token.</p></div><span className="pulse-ui__badge">Secure</span></div>
   </div></section>;
 }

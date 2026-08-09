@@ -21,6 +21,9 @@ test("Pulse owns an external planned Workshop plugin without Workshop source imp
   assert.match(source, /Keep the important things moving/);
   assert.match(source, /Completion history/);
   assert.match(source, /Android push through ntfy/);
+  assert.match(source, /Change folder/);
+  assert.doesNotMatch(source, />Reconnect</);
+  assert.doesNotMatch(source, /requestWorkspaceRoot\(undefined\)/);
   assert.match(source, /useEffect\(\(\) => \{ void refresh\(\); \}, \[refresh\]\)/);
   assert.doesNotMatch(source, /workshop\/|\.\.\/workshop|@workshop/);
   assert.match(service, /pulsePath\("\/api\/v1\/snapshot"\)/);

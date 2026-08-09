@@ -90,6 +90,12 @@ reconnect after an app update. The API credential remains in the macOS Keychain
 and never enters Pulse's webview or local storage. The folder path does not
 belong in the public Pulse repository.
 
+When Pulse is connected, Settings labels the private folder **Connected** and
+the cloud runner separately as **Online**, stale, or unavailable. Use **Change
+folder** only when moving Pulse to a different private folder; it opens an
+inline, prefilled editor and never relies on a browser prompt. Refresh retries
+the current service connection without changing folders.
+
 ## Private Pulse Config
 
 Start from [../examples/forced-test-pulse.yaml](../examples/forced-test-pulse.yaml)
