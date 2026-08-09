@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Pulse — D0 product prototype</title>
+    <link rel="stylesheet" href="./prototype.css" />
+  </head>
+  <body data-direction="quiet">
+    <a class="skip-link" href="#pulse-main">Skip to Pulse</a>
+    <div class="workshop-frame">
+      <header class="workshop-bar" aria-label="Workshop host preview">
+        <a class="workshop-back" href="#/compare" aria-label="Back to design review">
+          <span aria-hidden="true">←</span><span>Tools</span>
+        </a>
+        <div class="workshop-lockup"><span>WORKSHOP</span><i>/</i><strong>PULSE</strong></div>
+        <button class="icon-button" id="review-toggle" aria-label="Open design review">•••</button>
+      </header>
+      <div class="pulse-app">
+        <aside class="pulse-sidebar" aria-label="Pulse navigation">
+          <a class="pulse-brand" href="#/reminders" aria-label="Pulse reminders">
+            <span class="pulse-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span>Pulse</span>
+          </a>
+          <nav>
+            <a href="#/reminders" data-route="reminders"><span aria-hidden="true">◌</span>Reminders</a>
+            <a href="#/history" data-route="history"><span aria-hidden="true">↺</span>History</a>
+            <a href="#/settings" data-route="settings"><span aria-hidden="true">⚙</span>Settings</a>
+          </nav>
+          <div class="sidebar-health" aria-label="Runner online; checked just now"><span class="health-dot"></span><span><strong>Runner online</strong><small>Checked just now</small></span></div>
+        </aside>
+        <main id="pulse-main" tabindex="-1"></main>
+      </div>
+    </div>
+    <div id="toast-region" class="toast-region" aria-live="polite"></div>
+    <div id="dialog-root"></div>
+    <script src="./prototype.js"></script>
+  </body>
+</html>

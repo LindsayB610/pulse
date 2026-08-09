@@ -55,6 +55,12 @@ console.
 
 The prototype must define these values before components are built:
 
+The primary target is Pulse running inside Workshop on a Mac laptop at a
+roughly 1280–1440px-wide window. Desktop information density, keyboard flow,
+and use of the available horizontal space take precedence. The narrow layout
+is a resilience and accessibility requirement, not the product's organizing
+metaphor.
+
 | Element | Contract |
 | --- | --- |
 | Content frame | 928px maximum width, 24px desktop gutters, 16px narrow-width gutters; never a full-window empty field. |
@@ -236,6 +242,11 @@ Workshop’s internal component tree.
   implementation begins.
 - Evidence: approved screenshot set, token sheet, component inventory, and
   recorded design decisions. No production code is accepted in this phase.
+
+**Current state:** implemented and ready for product approval. The interactive
+prototype, direction rationale, component inventory, and desktop/narrow
+evidence are in [design/README.md](../design/README.md). Production promotion
+remains gated on review of the selected Quiet Focus direction.
 
 ### P0 — Truthful data and route contract
 
