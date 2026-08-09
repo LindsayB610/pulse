@@ -8,6 +8,7 @@ const fixturePulses = [
     id: "water-plants",
     title: "Water houseplants",
     active: true,
+    instructions: "Use the rain barrel.",
     schedule: { type: "weekly", daysOfWeek: ["sunday"], time: "09:30", timezone: "America/Los_Angeles" },
     notificationPolicy: { channels: ["ntfy"], repeatEveryMinutes: 30, snoozeEveryMinutes: 30 },
   },
@@ -55,7 +56,7 @@ function setControlValue(control, value) {
   control.dispatchEvent(new control.ownerDocument.defaultView.Event("change", { bubbles: true }));
 }
 
-async function mountedPulse(snapshot = fixtureSnapshot, onRouteChange) {
+async function mountedPulse(snapshot = fixtureSnapshot, onRouteChange, respond) {
   const { dom, previous } = installDom();
   const React = await import("react");
   const { act } = React;
@@ -64,6 +65,7 @@ async function mountedPulse(snapshot = fixtureSnapshot, onRouteChange) {
   const requests = [];
   const request = async (entry) => {
     requests.push(entry);
+    if (respond) return respond(entry, snapshot);
     if (entry.method === "GET") return { status: 200, body: snapshot };
     if (entry.method === "POST") return { status: 201, body: { pulse: entry.body } };
     if (entry.method === "DELETE") return { status: 204, body: {} };
@@ -133,7 +135,7 @@ test("production Pulse UI exposes route-specific history and settings without cr
   }
 });
 
-test("production Pulse UI preserves full definitions while pausing and confirms deletion", async () => {
+test("production Pulse UI preserves full definitions while pausing, editing, and deleting", async () => {
   const mounted = await mountedPulse();
   const { act, dom, requests } = mounted;
   try {
@@ -142,10 +144,64 @@ test("production Pulse UI preserves full definitions while pausing and confirms 
     await act(async () => { [...card.querySelectorAll("button")].find((button) => button.textContent.includes("Pause")).click(); });
     assert.deepEqual(requests.find((entry) => entry.method === "PATCH")?.body, { ...fixturePulses[0], active: false });
 
-    await act(async () => { [...card.querySelectorAll("button")].find((button) => button.textContent.includes("Edit")).click(); });
+    const refreshedCard = [...dom.window.document.querySelectorAll("article")].find((article) => article.textContent.includes("Water houseplants"));
+    await act(async () => { [...refreshedCard.querySelectorAll("button")].find((button) => button.textContent.includes("Edit")).click(); });
+    await act(async () => { setControlValue(dom.window.document.querySelector('[aria-label="Reminder time"]'), "10:15"); });
+    await act(async () => { dom.window.document.querySelector("form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })); });
+    assert.deepEqual(requests.filter((entry) => entry.method === "PATCH")[1]?.body, {
+      ...fixturePulses[0],
+      schedule: { ...fixturePulses[0].schedule, time: "10:15" },
+    });
+
+    const updatedCard = [...dom.window.document.querySelectorAll("article")].find((article) => article.textContent.includes("Water houseplants"));
+    await act(async () => { [...updatedCard.querySelectorAll("button")].find((button) => button.textContent.includes("Edit")).click(); });
     await act(async () => { dom.window.document.querySelector("[data-action='delete-reminder']").click(); });
     assert.equal(dom.window.document.querySelector("[role='dialog']")?.getAttribute("aria-modal"), "true");
     assert.match(dom.window.document.querySelector("[role='dialog']").textContent, /Delete “Water houseplants”/);
+    assert.equal(dom.window.document.activeElement.textContent, "Keep reminder");
+    await act(async () => { dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape" })); });
+    assert.equal(dom.window.document.querySelector("[role='dialog']"), null);
+    await act(async () => { dom.window.document.querySelector("[data-action='delete-reminder']").click(); });
+    await act(async () => { [...dom.window.document.querySelector("[role='dialog']").querySelectorAll("button")].find((button) => button.textContent === "Delete reminder").click(); });
+    assert.deepEqual(requests.find((entry) => entry.method === "DELETE"), { method: "DELETE", path: "/api/v1/pulses/water-plants" });
+  } finally {
+    await mounted.close();
+  }
+});
+
+test("production timing presets map to the saved policy and service errors stay visible", async () => {
+  const mounted = await mountedPulse(fixtureSnapshot, undefined, async (entry, snapshot) => {
+    if (entry.method === "GET") return { status: 200, body: snapshot };
+    return { status: 409, body: { error: "A reminder with that id already exists." } };
+  });
+  try {
+    await mounted.render("reminders");
+    await mounted.act(async () => { [...mounted.dom.window.document.querySelectorAll("button")].find((button) => button.textContent.includes("New reminder")).click(); });
+    await mounted.act(async () => {
+      setControlValue(mounted.dom.window.document.querySelector('[aria-label="Reminder name"]'), "Existing reminder");
+      const snoozePresets = mounted.dom.window.document.querySelector('[aria-label="Snooze and no action presets"]');
+      [...snoozePresets.querySelectorAll("button")].find((button) => button.textContent === "1 day").click();
+    });
+    assert.equal(mounted.dom.window.document.querySelector('[aria-label="Unanswered snooze minutes"]').value, "1440");
+    await mounted.act(async () => { mounted.dom.window.document.querySelector("form").dispatchEvent(new mounted.dom.window.Event("submit", { bubbles: true, cancelable: true })); });
+    const createRequest = mounted.requests.find((entry) => entry.method === "POST");
+    assert.equal(createRequest.body.notificationPolicy.snoozeEveryMinutes, 1440);
+    assert.match(mounted.dom.window.document.querySelector("[role='alert']").textContent, /already exists/);
+  } finally {
+    await mounted.close();
+  }
+});
+
+test("production UI gives empty and unavailable states an actionable explanation", async () => {
+  const mounted = await mountedPulse({ pulses: [], runnerHealth: { status: "unknown", checkedAt: "2026-08-09T18:00:00.000Z" }, state: { version: 1, occurrences: [], events: [] } });
+  try {
+    await mounted.render("reminders");
+    assert.match(mounted.dom.window.document.body.textContent, /No reminders yet/);
+    assert.match(mounted.dom.window.document.body.textContent, /Create your first reminder/);
+    assert.match(mounted.dom.window.document.body.textContent, /Status unavailable/);
+    await mounted.render("settings");
+    assert.match(mounted.dom.window.document.body.textContent, /Runner status unavailable/);
+    assert.match(mounted.dom.window.document.body.textContent, /has not received a current health report/);
   } finally {
     await mounted.close();
   }
@@ -217,13 +273,18 @@ test("production navigation reports its route to Workshop and distinguishes a st
   }
 });
 
-test("production dashboard has no automated accessibility violations", async () => {
+test("production dashboard and editor have no automated accessibility violations", async () => {
   const mounted = await mountedPulse();
   try {
     await mounted.render("reminders");
     const axe = await readFile(new URL("../node_modules/axe-core/axe.min.js", import.meta.url), "utf8");
     mounted.dom.window.eval(axe);
-    const result = await mounted.dom.window.axe.run(mounted.dom.window.document, {
+    let result = await mounted.dom.window.axe.run(mounted.dom.window.document, {
+      rules: { "color-contrast": { enabled: false }, region: { enabled: false } },
+    });
+    assert.deepEqual(Array.from(result.violations, (violation) => violation.id), []);
+    await mounted.act(async () => { [...mounted.dom.window.document.querySelectorAll("button")].find((button) => button.textContent.includes("New reminder")).click(); });
+    result = await mounted.dom.window.axe.run(mounted.dom.window.document, {
       rules: { "color-contrast": { enabled: false }, region: { enabled: false } },
     });
     assert.deepEqual(Array.from(result.violations, (violation) => violation.id), []);

@@ -20,6 +20,7 @@ export const pulseStyles = `
 .pulse-ui__tab { border: 0; border-radius: 999px; background: transparent; color: var(--pulse-muted); padding: 9px 15px; cursor: pointer; font-weight: 700; }
 .pulse-ui__tab:hover { color: var(--pulse-text); background: rgba(255,255,255,.06); }
 .pulse-ui__tab[aria-current='page'] { color: white; background: var(--pulse-pink-soft); box-shadow: inset 0 0 0 1px rgba(255,47,146,.42); }
+.pulse-ui__refresh { margin-left: auto; }
 .pulse-ui__page { padding-top: 30px; }
 .pulse-ui__page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 26px; }
 .pulse-ui__eyebrow { color: var(--pulse-pink); font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; margin: 0 0 8px; }

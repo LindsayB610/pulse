@@ -128,9 +128,10 @@ function runnerLabel(snapshot: PulseSnapshot): string {
   return "Status unavailable";
 }
 
-function RouteTabs({ active, onSelect }: { active: RouteId; onSelect: (route: RouteId) => void }): React.ReactElement {
+function RouteTabs({ active, onSelect, onRefresh }: { active: RouteId; onSelect: (route: RouteId) => void; onRefresh: () => void }): React.ReactElement {
   return <nav className="pulse-ui__nav" aria-label="Pulse sections">
     {routes.map((route) => <button key={route.id} className="pulse-ui__tab" type="button" aria-current={active === route.id ? "page" : undefined} onClick={() => onSelect(route.id)}>{route.label}</button>)}
+    <button className="pulse-ui__tab pulse-ui__refresh" type="button" onClick={onRefresh}>↻ Refresh</button>
   </nav>;
 }
 
@@ -162,13 +163,18 @@ export function WorkshopToolView({ activeRouteId = "reminders", workspaceRoot, r
       return;
     }
     setConnectionStatus("Connecting Pulse…");
+    let cancelled = false;
     void import("@tauri-apps/api/core")
       .then(({ invoke }) => createWorkshopSecureServiceRequester(workspaceRoot, invoke))
       .then((requester) => {
+        if (cancelled) return;
         setRequest(() => requester);
         setConnectionStatus("Pulse connected.");
       })
-      .catch(() => setConnectionStatus("Pulse could not connect to its private service."));
+      .catch(() => {
+        if (!cancelled) setConnectionStatus("Pulse could not connect to its private service.");
+      });
+    return () => { cancelled = true; };
   }, [workspaceRoot, connectionAttempt]);
   const selectRoute = (next: RouteId) => {
     setRoute(next);
@@ -260,7 +266,7 @@ export function PulseManagementView({ request, activeRouteId = "reminders", work
     } catch { setError("Pulse could not delete the reminder."); }
   };
   return <>
-    <RouteTabs active={route} onSelect={selectRoute} />
+    <RouteTabs active={route} onSelect={selectRoute} onRefresh={() => void refresh("Pulse refreshed.")} />
     {route === "reminders" && (editing
       ? <ReminderEditor pulse={editing === "new" ? undefined : editing} onCancel={() => setEditing(null)} onDelete={(pulse) => setDeleting(pulse)} onSave={async (definition) => {
           setError("");
@@ -304,7 +310,7 @@ function RemindersPage({ snapshot, loading, onNew, onEdit, onToggle }: { snapsho
           const occurrence = openOccurrence(snapshot, pulse.id);
           const isDue = occurrence?.state === "due";
           return <article className={`pulse-ui__card${pulse.active ? "" : " pulse-ui__card--paused"}`} key={pulse.id}>
-            <div className="pulse-ui__card-main"><div className="pulse-ui__card-title-row"><h3>{pulse.title}</h3><span className={`pulse-ui__badge${isDue ? " pulse-ui__badge--due" : ""}`}>{!pulse.active ? "Paused" : isDue ? "Due now" : "Active"}</span></div><p className="pulse-ui__schedule">{scheduleLabel(pulse)}{occurrence && !isDue ? ` · next ${formatDate(occurrence.dueAt)}` : ""}</p><p className="pulse-ui__policy">Repeats every {minutesLabel(pulse.notificationPolicy?.repeatEveryMinutes)} until answered · Snooze {minutesLabel(pulse.notificationPolicy?.snoozeEveryMinutes)}</p></div>
+            <div className="pulse-ui__card-main"><div className="pulse-ui__card-title-row"><h3>{pulse.title}</h3><span className={`pulse-ui__badge${isDue ? " pulse-ui__badge--due" : ""}`}>{!pulse.active ? "Paused" : isDue ? "Due now" : "Active"}</span></div><p className="pulse-ui__schedule">{scheduleLabel(pulse)}{occurrence && !isDue ? ` · next ${formatDate(occurrence.dueAt)}` : ""}</p><p className="pulse-ui__policy">Snooze or no action: {minutesLabel(pulse.notificationPolicy?.snoozeEveryMinutes)} · Delivery retry: {minutesLabel(pulse.notificationPolicy?.repeatEveryMinutes)}</p></div>
             <div className="pulse-ui__actions"><button className="pulse-ui__button" type="button" onClick={() => onToggle(pulse)}>{pulse.active ? "Pause" : "Resume"}</button><button className="pulse-ui__button" type="button" onClick={() => onEdit(pulse)}>Edit</button></div>
           </article>;
         })}</div>}
@@ -366,5 +372,10 @@ function SettingsPage({ snapshot, workspaceRoot, onReconnect }: { snapshot: Puls
 }
 
 function DeleteDialog({ pulse, onCancel, onConfirm }: { pulse: PulseDefinition; onCancel: () => void; onConfirm: () => void }): React.ReactElement {
-  return <div className="pulse-ui__modal-backdrop"><section className="pulse-ui__modal" role="dialog" aria-modal="true" aria-labelledby="pulse-delete-title"><p className="pulse-ui__eyebrow">Permanent action</p><h2 id="pulse-delete-title">Delete “{pulse.title}”?</h2><p className="pulse-ui__muted">This removes the reminder from the cloud runner. Its past completion history may remain in runner state.</p><div className="pulse-ui__modal-actions"><button className="pulse-ui__button" type="button" onClick={onCancel}>Keep reminder</button><button className="pulse-ui__button pulse-ui__button--danger" type="button" onClick={onConfirm}>Delete reminder</button></div></section></div>;
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onCancel(); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onCancel]);
+  return <div className="pulse-ui__modal-backdrop"><section className="pulse-ui__modal" role="dialog" aria-modal="true" aria-labelledby="pulse-delete-title"><p className="pulse-ui__eyebrow">Permanent action</p><h2 id="pulse-delete-title">Delete “{pulse.title}”?</h2><p className="pulse-ui__muted">This removes the reminder from the cloud runner. Its past completion history may remain in runner state.</p><div className="pulse-ui__modal-actions"><button autoFocus className="pulse-ui__button" type="button" onClick={onCancel}>Keep reminder</button><button className="pulse-ui__button pulse-ui__button--danger" type="button" onClick={onConfirm}>Delete reminder</button></div></section></div>;
 }
