@@ -180,8 +180,14 @@ function shouldAutomaticallySnooze(
   occurrence: PulseOccurrence,
   now: Date,
 ): boolean {
+  const dueCycleStartedAt = currentDueCycleStartedAt(events, occurrence);
   const lastSuccessfulSendAt = events
-    .filter((event) => event.type === "notification_sent" && event.occurrenceId === occurrence.id && event.metadata?.ok !== false)
+    .filter((event) => {
+      return event.type === "notification_sent"
+        && event.occurrenceId === occurrence.id
+        && event.metadata?.ok !== false
+        && (dueCycleStartedAt === undefined || Date.parse(event.at) >= dueCycleStartedAt);
+    })
     .map((event) => Date.parse(event.at))
     .filter(Number.isFinite)
     .sort((left, right) => right - left)[0];
@@ -269,12 +275,14 @@ function shouldSendNotification(
   repeatEveryMinutes: number,
 ): boolean {
   const repeatMs = repeatEveryMinutes * 60 * 1000;
+  const dueCycleStartedAt = currentDueCycleStartedAt(events, occurrence);
   const lastSentAt = events
     .filter((event) => {
       return (
         event.type === "notification_sent" &&
         event.occurrenceId === occurrence.id &&
-        event.metadata?.channel === channel
+        event.metadata?.channel === channel &&
+        (dueCycleStartedAt === undefined || Date.parse(event.at) >= dueCycleStartedAt)
       );
     })
     .map((event) => Date.parse(event.at))
@@ -282,4 +290,15 @@ function shouldSendNotification(
     .sort((a, b) => b - a)[0];
 
   return lastSentAt === undefined || now.getTime() - lastSentAt >= repeatMs;
+}
+
+function currentDueCycleStartedAt(
+  events: PulseEvent[],
+  occurrence: PulseOccurrence,
+): number | undefined {
+  return events
+    .filter((event) => event.type === "occurrence_became_due" && event.occurrenceId === occurrence.id)
+    .map((event) => Date.parse(event.at))
+    .filter(Number.isFinite)
+    .sort((left, right) => right - left)[0];
 }

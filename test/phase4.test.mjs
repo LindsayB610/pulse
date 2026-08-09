@@ -125,6 +125,58 @@ test("runner automatically snoozes an unanswered notification after two minutes 
   assert.equal(store.read().events.filter((event) => event.type === "notification_sent").length, 2);
 });
 
+test("runner sends immediately when a snoozed occurrence becomes due again", async () => {
+  const state = createEmptyPulseState();
+  const occurrenceId = "weekly-demo-check:2026-06-28T16:00:00.000Z";
+  state.occurrences.push({
+    id: occurrenceId,
+    pulseId: "weekly-demo-check",
+    dueAt: "2026-06-28T16:32:00.000Z",
+    state: "scheduled",
+    snoozedAt: "2026-06-28T16:02:00.000Z",
+    snoozeCount: 1,
+  });
+  state.events.push(
+    {
+      id: "evt:first-due",
+      pulseId: "weekly-demo-check",
+      occurrenceId,
+      type: "occurrence_became_due",
+      at: "2026-06-28T16:00:00.000Z",
+    },
+    {
+      id: "evt:first-send",
+      pulseId: "weekly-demo-check",
+      occurrenceId,
+      type: "notification_sent",
+      at: "2026-06-28T16:00:00.000Z",
+      metadata: { channel: "console", ok: true },
+    },
+    {
+      id: "evt:first-snooze",
+      pulseId: "weekly-demo-check",
+      occurrenceId,
+      type: "occurrence_snoozed",
+      at: "2026-06-28T16:02:00.000Z",
+      metadata: { until: "2026-06-28T16:32:00.000Z", source: "notification-action" },
+    },
+  );
+  const store = createMemoryPulseStateStore(state);
+  const notifier = createFakeNotifier();
+
+  await runPulseRunnerTick({
+    now: new Date("2026-06-28T16:32:00.000Z"),
+    pulses: [{ ...weeklyPulse, notificationPolicy: { ...weeklyPulse.notificationPolicy, repeatEveryMinutes: 60 } }],
+    stateStore: store,
+    notifier,
+  });
+
+  assert.equal(notifier.sends.length, 1);
+  assert.equal(store.read().occurrences[0].state, "due");
+  assert.equal(store.read().events.at(-1)?.type, "notification_sent");
+  assert.equal(store.read().events.filter((event) => event.type === "notification_sent").length, 2);
+});
+
 test("runner honors a pulse-specific unattended snooze duration", async () => {
   const state = createEmptyPulseState();
   state.occurrences.push({
