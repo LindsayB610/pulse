@@ -412,6 +412,7 @@ function requiredEventType(input: unknown): PulseEvent["type"] {
     input === "occurrence_scheduled" ||
     input === "occurrence_became_due" ||
     input === "notification_sent" ||
+    input === "notification_sequence_cleanup" ||
     input === "occurrence_snoozed" ||
     input === "occurrence_completed"
   ) {

@@ -8,15 +8,25 @@ for production Android push.
 
 ## ntfy Android Push
 
-The runner POSTs one notification per due occurrence to the configured private
-topic. The title identifies the due pulse, and every live notification includes
+The runner assigns each occurrence an opaque ntfy sequence and POSTs every
+initial or snoozed notification in that occurrence to the same sequence. This
+keeps one reminder chain together without exposing the pulse name or schedule in
+the sequence ID. The title identifies the due pulse, and every live notification includes
 **Done** and a duration-aware **Snooze** Android action. Done acknowledges that exact
-occurrence, clears the notification, and stops later repeats. Snooze moves the
+occurrence, deletes that occurrence's ntfy sequence, and stops later repeats.
+It does not delete the saved Pulse definition, future recurring occurrences, or
+notifications from any other occurrence. Snooze moves the
 same occurrence forward by that pulse's configured duration; it remains active until Done. Neither
 action requires an Android phone. Pulse is where pulses are created,
 paused, resumed, and deleted. ntfy payloads use high priority and the `bell`
 tag. A failed send is recorded and retried by the normal occurrence repeat
 policy.
+
+Pulse records sequence cleanup separately from completion. If ntfy is
+temporarily unavailable, Done still succeeds and remains durable; the scheduled
+runner retries deletion after five minutes. Notifications sent by Pulse versions
+before sequence support cannot be grouped safely and must be removed manually.
+Pulse never guesses which legacy messages belong together.
 
 Adapters must not log secrets.
 

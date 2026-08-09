@@ -1,4 +1,5 @@
 import type { NotificationDispatcher, NotificationInput } from "./runner.js";
+import { isPulseNtfySequenceId, ntfySequenceIdForOccurrence } from "./ntfy-sequence.js";
 
 export type ConsoleNotificationWriter = {
   write(line: string): void;
@@ -62,7 +63,8 @@ export function createNtfyNotificationAdapter(options: NtfyNotificationAdapterOp
       const snoozeActionUrl = options.snoozeActionUrl === undefined
         ? undefined
         : await options.snoozeActionUrl(input);
-      const response = await fetchImpl(`${server}/${encodeURIComponent(options.topic)}`, {
+      const sequenceId = ntfySequenceIdForOccurrence(input.occurrence.id);
+      const response = await fetchImpl(ntfySequenceUrl(server, options.topic, sequenceId), {
         method: "POST",
         headers: {
           ...(options.token === undefined ? {} : { authorization: `Bearer ${options.token}` }),
@@ -84,7 +86,20 @@ export function createNtfyNotificationAdapter(options: NtfyNotificationAdapterOp
       return {
         ok: true,
         detail: "sent",
+        sequenceId,
       };
+    },
+    async deleteOccurrenceSequence(input) {
+      if (!isPulseNtfySequenceId(input.sequenceId)) {
+        throw new Error("A valid Pulse ntfy sequence ID is required for deletion.");
+      }
+      const response = await fetchImpl(ntfySequenceUrl(server, options.topic, input.sequenceId), {
+        method: "DELETE",
+        headers: options.token === undefined ? {} : { authorization: `Bearer ${options.token}` },
+        body: "",
+      });
+      if (!response.ok) throw new Error(`ntfy server returned ${response.status} while deleting a notification sequence`);
+      return { ok: true, detail: "deleted", sequenceId: input.sequenceId };
     },
   };
 }
@@ -172,4 +187,8 @@ function normalizeNtfyServer(server: string): string {
     throw new Error("PULSE_NTFY_SERVER must be an http or https URL.");
   }
   return normalized;
+}
+
+function ntfySequenceUrl(server: string, topic: string, sequenceId: string): string {
+  return `${server}/${encodeURIComponent(topic)}/${encodeURIComponent(sequenceId)}`;
 }

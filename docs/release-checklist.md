@@ -46,7 +46,14 @@ The release fixture must prove:
 
 ```text
 due -> notify -> done -> stop
+        |
+        +-> snooze stays in the same occurrence sequence
+            and Done deletes only that sequence
 ```
 
 Do not release if a due occurrence can be dismissed, snoozed, skipped, or hidden
 without Done.
+
+Also prove that a temporary ntfy deletion failure does not roll back Done, is
+retried after five minutes, and never targets legacy unsequenced messages or a
+different occurrence's sequence.

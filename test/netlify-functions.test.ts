@@ -52,9 +52,19 @@ test("Netlify functions use authenticated Blob-backed definitions and preserve c
   });
   setPulseBlobStoreForTest(new MemoryBlobStore());
   const originalFetch = globalThis.fetch;
-  const deliveries: Array<{ url: string; actions: string }> = [];
+  const deliveries: Array<{ url: string; method: string; actions: string; authorization: string }> = [];
+  let deleteFailuresRemaining = 1;
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
-    deliveries.push({ url: String(url), actions: String((init?.headers as Record<string, string>)?.actions ?? "") });
+    deliveries.push({
+      url: String(url),
+      method: String(init?.method ?? "GET"),
+      actions: String((init?.headers as Record<string, string>)?.actions ?? ""),
+      authorization: String((init?.headers as Record<string, string>)?.authorization ?? ""),
+    });
+    if (init?.method === "DELETE" && deleteFailuresRemaining > 0) {
+      deleteFailuresRemaining -= 1;
+      return new Response("temporarily unavailable", { status: 503 });
+    }
     return new Response("ok", { status: 200 });
   }) as typeof fetch;
   const authorized = (url: string, init: RequestInit = {}) => new Request(url, { ...init, headers: { authorization: "Bearer test-api-token", ...(init.headers ?? {}) } });
@@ -82,7 +92,7 @@ test("Netlify functions use authenticated Blob-backed definitions and preserve c
     const due = afterRun.state.occurrences.find((occurrence: { state: string }) => occurrence.state === "due");
     assert.equal(afterRun.runnerHealth.checkedAt, "2026-08-09T16:50:00.000Z");
     assert.equal(deliveries.length, 1);
-    assert.equal(deliveries[0]?.url, "https://ntfy.test/test-topic");
+    assert.match(deliveries[0]?.url ?? "", /^https:\/\/ntfy\.test\/test-topic\/pulse-[A-Za-z0-9_-]+$/);
     assert.match(deliveries[0]?.actions ?? "", /Mark done/);
     const doneUrl = new URL((deliveries[0]?.actions.match(/http, Mark done, ([^,]+),/) ?? [])[1]);
     const snoozeUrl = new URL((deliveries[0]?.actions.match(/http, Snooze[^,]*, ([^,]+),/) ?? [])[1]);
@@ -94,9 +104,27 @@ test("Netlify functions use authenticated Blob-backed definitions and preserve c
     assert.equal(Date.parse(snoozedOccurrence.dueAt) - Date.parse(snoozedOccurrence.snoozedAt), 1440 * 60_000);
 
     await runScheduledPulseTick(new Date(snoozedOccurrence.dueAt));
+    assert.equal(deliveries[1]?.url, deliveries[0]?.url, "the snooze delivery updates the original sequence");
     const completed = await doneNotificationHandler(new Request(doneUrl, { method: "POST" }), { params: { id: encodeURIComponent(due.id) } } as never);
     assert.equal(completed.status, 200);
-    assert.equal((await completed.json()).occurrence.state, "done");
+    const completedBody = await completed.json();
+    assert.equal(completedBody.occurrence.state, "done");
+    assert.equal(completedBody.notificationCleanup, "pending");
+    assert.deepEqual(deliveries[2], { url: deliveries[0]?.url, method: "DELETE", actions: "", authorization: "Bearer test-notification-token" });
+
+    const afterFailedCleanup = await readPulseSnapshot();
+    assert.equal(afterFailedCleanup.state.occurrences.find((occurrence: { id: string }) => occurrence.id === due.id)?.state, "done", "cleanup failure must never roll back completion");
+    const failedCleanup = [...afterFailedCleanup.state.events].reverse().find((event: { type: string }) => event.type === "notification_sequence_cleanup");
+    assert.equal(failedCleanup?.metadata?.ok, false);
+    await runScheduledPulseTick(new Date(Date.parse(failedCleanup.at) + 5 * 60_000));
+    assert.deepEqual(deliveries[3], { url: deliveries[0]?.url, method: "DELETE", actions: "", authorization: "Bearer test-notification-token" });
+    const afterCleanupRetry = await readPulseSnapshot();
+    assert.equal(afterCleanupRetry.state.events.some((event: { type: string; metadata?: { ok?: boolean } }) => event.type === "notification_sequence_cleanup" && event.metadata?.ok === true), true);
+
+    const repeatedDone = await doneNotificationHandler(new Request(doneUrl, { method: "POST" }), { params: { id: encodeURIComponent(due.id) } } as never);
+    assert.equal(repeatedDone.status, 200);
+    assert.equal((await repeatedDone.json()).alreadyDone, true);
+    assert.equal(deliveries.length, 4, "idempotent Done does not emit a second sequence deletion");
 
     assert.equal(pulsesConfig.path, "/api/v1/pulses");
     assert.equal(snapshotConfig.path, "/api/v1/snapshot");

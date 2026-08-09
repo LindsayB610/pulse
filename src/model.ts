@@ -69,6 +69,7 @@ export type PulseEventType =
   | "occurrence_scheduled"
   | "occurrence_became_due"
   | "notification_sent"
+  | "notification_sequence_cleanup"
   | "occurrence_snoozed"
   | "occurrence_completed";
 

@@ -2,6 +2,7 @@ import { getStore } from "@netlify/blobs";
 
 import { createNotificationDispatcherFromEnv } from "../../../src/adapters.js";
 import { loadPulseDefinitionsFromYaml, parsePulseDefinitions, applyOccurrenceAction, createPulseEvent, type PulseDefinition } from "../../../src/model.js";
+import { isPulseNtfySequenceId } from "../../../src/ntfy-sequence.js";
 import { runPulseRunnerTick } from "../../../src/runner.js";
 import { createEmptyPulseState, createMemoryPulseStateStore, type PulseState } from "../../../src/storage.js";
 
@@ -148,6 +149,54 @@ export async function markPulseDoneFromNotification(occurrenceId: string): Promi
     stateStore.write(state);
     return { occurrence: completed, alreadyDone: false };
   }));
+}
+
+export type NotificationCleanupStatus = "deleted" | "pending" | "not_available";
+
+/** Delete only the sequenced ntfy messages belonging to one completed occurrence.
+ * Completion remains durable even if ntfy is temporarily unavailable; the
+ * scheduled runner retries failed cleanup events later. */
+export async function cleanupNotificationSequenceFromNotification(occurrenceId: string): Promise<NotificationCleanupStatus> {
+  const state = await readState();
+  const occurrence = state.occurrences.find((candidate) => candidate.id === occurrenceId);
+  if (!occurrence) throw new PulseHttpError(404, "Occurrence not found.");
+  const sentEvent = [...state.events].reverse().find((event) => event.type === "notification_sent" && event.occurrenceId === occurrenceId && event.metadata?.ok === true && isPulseNtfySequenceId(event.metadata?.sequenceId));
+  if (sentEvent === undefined) return "not_available";
+  const sequenceId = sentEvent.metadata?.sequenceId;
+  if (!isPulseNtfySequenceId(sequenceId)) return "not_available";
+  const alreadyDeleted = state.events.some((event) => event.type === "notification_sequence_cleanup" && event.occurrenceId === occurrenceId && event.metadata?.sequenceId === sequenceId && event.metadata?.ok === true);
+  if (alreadyDeleted) return "deleted";
+
+  const env = {
+    PULSE_NOTIFY_PROVIDER: process.env.PULSE_NOTIFY_PROVIDER,
+    PULSE_NTFY_SERVER: process.env.PULSE_NTFY_SERVER,
+    PULSE_NTFY_TOPIC: process.env.PULSE_NTFY_TOPIC,
+    PULSE_NTFY_TOKEN: process.env.PULSE_NTFY_TOKEN,
+  };
+  let cleanup: { ok: boolean; detail?: string };
+  try {
+    const notifier = createNotificationDispatcherFromEnv(env);
+    cleanup = await notifier.deleteOccurrenceSequence?.({ occurrence, sequenceId, now: new Date() })
+      ?? { ok: false, detail: "Notification provider does not support sequence deletion." };
+  } catch (error) {
+    cleanup = { ok: false, detail: error instanceof Error ? error.message : String(error) };
+  }
+  const detail = redactValues(cleanup.detail ?? "", [env.PULSE_NTFY_TOPIC, env.PULSE_NTFY_TOKEN]);
+  await withPulseLock(() => withState((stateStore) => {
+    const latest = stateStore.read();
+    const successAlreadyRecorded = latest.events.some((event) => event.type === "notification_sequence_cleanup" && event.occurrenceId === occurrenceId && event.metadata?.sequenceId === sequenceId && event.metadata?.ok === true);
+    if (!successAlreadyRecorded) {
+      latest.events.push(createPulseEvent({
+        pulseId: occurrence.pulseId,
+        occurrenceId,
+        type: "notification_sequence_cleanup",
+        at: new Date(),
+        metadata: { channel: "ntfy", sequenceId, ok: cleanup.ok, detail },
+      }));
+      stateStore.write(latest);
+    }
+  }));
+  return cleanup.ok ? "deleted" : "pending";
 }
 
 export async function snoozePulseFromNotification(occurrenceId: string): Promise<Record<string, unknown>> {
@@ -306,4 +355,10 @@ function toBase64Url(value: ArrayBuffer): string {
 
 function fromBase64Url(value: string): Uint8Array {
   return Buffer.from(value, "base64url");
+}
+
+function redactValues(detail: string, values: Array<string | undefined>): string {
+  return values
+    .filter((value): value is string => value !== undefined && value !== "")
+    .reduce((redacted, value) => redacted.split(value).join("[redacted]"), detail);
 }

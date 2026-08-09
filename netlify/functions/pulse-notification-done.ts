@@ -1,6 +1,7 @@
 import type { Config, Context } from "@netlify/functions";
 import { notificationActionOccurrenceId } from "../../src/notification-actions.js";
 import {
+  cleanupNotificationSequenceFromNotification,
   markPulseDoneFromNotification,
   pulseError,
   pulseJson,
@@ -23,8 +24,9 @@ export default async (request: Request, context: Context) => {
     });
     await verifyNotificationAction("done", occurrenceId, token);
     const result = await markPulseDoneFromNotification(occurrenceId);
-    console.info("Pulse notification Done action completed", { occurrenceId });
-    return pulseJson(result);
+    const notificationCleanup = await cleanupNotificationSequenceFromNotification(occurrenceId);
+    console.info("Pulse notification Done action completed", { occurrenceId, notificationCleanup });
+    return pulseJson({ ...result, notificationCleanup });
   } catch (error) {
     console.warn("Pulse notification Done action rejected", {
       method: request.method,

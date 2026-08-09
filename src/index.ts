@@ -76,12 +76,14 @@ export type {
   NotificationDispatcher,
   NotificationInput,
   NotificationResult,
+  NotificationSequenceInput,
   PulsePollingRunnerInput,
   PulseRunnerTickInput,
   PulseRunnerTickResult,
 } from "./runner.js";
 export type { PulseRunnerHealth } from "./health.js";
 export { notificationActionOccurrenceId } from "./notification-actions.js";
+export { isPulseNtfySequenceId, ntfySequenceIdForOccurrence } from "./ntfy-sequence.js";
 export type {
   PulseUiListenInput,
   PulseUiRunnerHealth,

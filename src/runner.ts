@@ -8,6 +8,7 @@ import {
   type PulseOccurrence,
 } from "./model.js";
 import type { PulseState, PulseStateStore } from "./storage.js";
+import { isPulseNtfySequenceId } from "./ntfy-sequence.js";
 
 export type NotificationInput = {
   channel: string;
@@ -19,10 +20,18 @@ export type NotificationInput = {
 export type NotificationResult = {
   ok: boolean;
   detail?: string;
+  sequenceId?: string;
+};
+
+export type NotificationSequenceInput = {
+  occurrence: PulseOccurrence;
+  sequenceId: string;
+  now: Date;
 };
 
 export type NotificationDispatcher = {
   send(input: NotificationInput): Promise<NotificationResult> | NotificationResult;
+  deleteOccurrenceSequence?(input: NotificationSequenceInput): Promise<NotificationResult> | NotificationResult;
 };
 
 export type PulseRunnerTickInput = {
@@ -43,12 +52,15 @@ export type PulseRunnerTickResult = {
   scheduled: number;
   becameDue: number;
   notificationsSent: number;
+  notificationSequencesDeleted: number;
+  notificationSequenceDeleteFailures: number;
 };
 
 const defaultRepeatEveryMinutes = 60;
 const defaultChannels = ["console"];
 const automaticSnoozeGraceMinutes = 2;
 const defaultSnoozeEveryMinutes = 30;
+const sequenceCleanupRetryMinutes = 5;
 
 export async function runPulseRunnerTick(input: PulseRunnerTickInput): Promise<PulseRunnerTickResult> {
   return input.stateStore.withExclusive(() => runPulseRunnerTickExclusive(input));
@@ -60,9 +72,12 @@ async function runPulseRunnerTickExclusive(input: PulseRunnerTickInput): Promise
     scheduled: 0,
     becameDue: 0,
     notificationsSent: 0,
+    notificationSequencesDeleted: 0,
+    notificationSequenceDeleteFailures: 0,
   };
 
   retainEarliestOpenOccurrencePerPulse(state, input.pulses);
+  await cleanupCompletedNotificationSequences(input, state, result);
 
   for (const pulse of input.pulses) {
     if (state.occurrences.some((occurrence) => occurrence.pulseId === pulse.id && occurrence.state !== "done")) {
@@ -164,6 +179,7 @@ async function runPulseRunnerTickExclusive(input: PulseRunnerTickInput): Promise
             channel,
             ok: sendResult.ok,
             detail,
+            ...(sendResult.sequenceId === undefined ? {} : { sequenceId: sendResult.sequenceId }),
           },
         }),
       );
@@ -173,6 +189,55 @@ async function runPulseRunnerTickExclusive(input: PulseRunnerTickInput): Promise
 
   input.stateStore.write(state);
   return result;
+}
+
+async function cleanupCompletedNotificationSequences(
+  input: PulseRunnerTickInput,
+  state: PulseState,
+  result: PulseRunnerTickResult,
+): Promise<void> {
+  if (input.notifier.deleteOccurrenceSequence === undefined) return;
+  for (const occurrence of state.occurrences.filter((candidate) => candidate.state === "done")) {
+    const sequenceId = notificationSequenceId(state.events, occurrence.id);
+    if (sequenceId === undefined) continue;
+    const cleanupEvents = state.events
+      .filter((event) => event.type === "notification_sequence_cleanup" && event.occurrenceId === occurrence.id && event.metadata?.sequenceId === sequenceId)
+      .sort((left, right) => Date.parse(right.at) - Date.parse(left.at));
+    if (cleanupEvents.some((event) => event.metadata?.ok === true)) continue;
+    const lastAttemptAt = cleanupEvents.map((event) => Date.parse(event.at)).find(Number.isFinite);
+    if (lastAttemptAt !== undefined && input.now.getTime() - lastAttemptAt < sequenceCleanupRetryMinutes * 60_000) continue;
+
+    const cleanup = await deleteNotificationSequence(input.notifier, { occurrence, sequenceId, now: input.now });
+    state.events.push(createPulseEvent({
+      pulseId: occurrence.pulseId,
+      occurrenceId: occurrence.id,
+      type: "notification_sequence_cleanup",
+      at: input.now,
+      metadata: {
+        channel: "ntfy",
+        sequenceId,
+        ok: cleanup.ok,
+        detail: redactNotificationDetail(cleanup.detail ?? "", input.redactValues ?? []),
+      },
+    }));
+    if (cleanup.ok) result.notificationSequencesDeleted += 1;
+    else result.notificationSequenceDeleteFailures += 1;
+  }
+}
+
+function notificationSequenceId(events: PulseEvent[], occurrenceId: string): string | undefined {
+  const sequenceId = events
+    .filter((event) => event.type === "notification_sent" && event.occurrenceId === occurrenceId && event.metadata?.ok === true && isPulseNtfySequenceId(event.metadata?.sequenceId))
+    .sort((left, right) => Date.parse(right.at) - Date.parse(left.at))[0]?.metadata?.sequenceId;
+  return isPulseNtfySequenceId(sequenceId) ? sequenceId : undefined;
+}
+
+async function deleteNotificationSequence(notifier: NotificationDispatcher, input: NotificationSequenceInput): Promise<NotificationResult> {
+  try {
+    return await notifier.deleteOccurrenceSequence?.(input) ?? { ok: false, detail: "Notification provider does not support sequence deletion." };
+  } catch (error) {
+    return { ok: false, detail: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 function shouldAutomaticallySnooze(

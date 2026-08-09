@@ -23,10 +23,14 @@ checkout before running the command examples.
    automatically snoozes the occurrence for its configured duration (30 minutes
    by default).
 5. Tap the duration-aware **Snooze** button on the Android notification and
-   confirm a new notification arrives after that configured duration.
+   confirm a new notification arrives after that configured duration in the
+   same ntfy notification chain.
 6. Tap **Done** on that notification.
-7. Confirm no more notifications are sent for that occurrence and completion
-   history is present in `state.json`.
+7. Confirm that occurrence's notification chain disappears from ntfy, no more
+   notifications are sent for it, and completion history is present in
+   `state.json`.
+8. Confirm other Pulse notifications and the saved recurring Pulse definition
+   remain intact.
 
 ## Done fallback command
 
@@ -65,5 +69,11 @@ The timestamp will be the actual completion time.
 - The expected notification channel fires.
 - Repeats continue while the occurrence is due.
 - The Android Done action marks the occurrence Done.
+- Done removes only that occurrence's ntfy sequence.
 - Notification repeats stop after Done.
 - `state.json` contains `completedAt` for the occurrence.
+
+If sequence deletion fails during this test, completion must still remain Done.
+Leave the runner active and confirm it retries cleanup after five minutes. Old
+notifications created before sequence support are outside this check and require
+manual removal in ntfy.
