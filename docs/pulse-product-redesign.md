@@ -29,6 +29,79 @@ manager. The UI should make three jobs quick and calm:
 The phone owns **Done** and **Snooze** for a due occurrence. The Workshop view
 does not duplicate those actions; it owns setup and management.
 
+## Design-definition gate — required before implementation
+
+No production UI work starts until this section is represented by a static,
+reviewable prototype. A written plan that says "modern" is how a project ends
+up with five status pills and a void again.
+
+### Reference mix
+
+Pulse borrows behaviors, not branding, from three deliberate references:
+
+| Reference | Borrow | Do not borrow |
+| --- | --- | --- |
+| [Things](https://culturedcode.com/things/features/) | Quiet single-purpose surfaces, an uncluttered default, and detail that appears only when needed. | Its light paper metaphor, task-list vocabulary, or broad project model. |
+| [Linear’s redesign](https://linear.app/now/how-we-redesigned-the-linear-ui) | Dense-but-legible hierarchy, disciplined alignment, and low-noise navigation. | Issue-tracker complexity, overloaded tables, or product-team terminology. |
+| [Raycast’s current app direction](https://www.raycast.com/blog/the-new-raycast) | Native-feeling restraint, tactile but functional controls, and responsiveness to the host platform. | Glass effects or animation used as decoration. |
+
+The visual direction is **quiet operations console**: warm near-black host
+background, a contained content column, paper-like elevated cards, high-contrast
+type, one bright Pulse accent, and no cyberpunk dashboard theatrics. It should
+feel closer to a well-made personal finance or health app than a developer
+console.
+
+### Visual contract
+
+The prototype must define these values before components are built:
+
+| Element | Contract |
+| --- | --- |
+| Content frame | 928px maximum width, 24px desktop gutters, 16px narrow-width gutters; never a full-window empty field. |
+| Type | One workhorse sans stack; page title 32/38 semibold, section title 18/26 semibold, body 15/22, metadata 13/18. No display type for routine controls. |
+| Surface | Host near-black page; cards one restrained step lighter with a 1px low-contrast border; 12px radius; shadows only for a dialog. |
+| Color | One Pulse pink/magenta accent for the primary action and focus; green/amber/red reserved for health semantics and paired with text/icon. |
+| Spacing | 4px base unit; 12/16px internal control rhythm; 20/24px card padding; 28/36px section gaps. |
+| Buttons | One filled primary button per view. Secondary actions are quiet outlined/text buttons. Delete never shares primary visual weight. |
+| Status | Small icon + plain-language label, never a bare machine token. Use badges only inside a card header, not as the page’s main content. |
+| Motion | 120–180ms opacity/transform for panel and feedback transitions; reduced-motion safe; no ornamental looping animation. |
+
+### Required prototype screens
+
+The review artifact must contain desktop and narrow-width versions of each:
+
+1. Connected reminders home: two active reminders, one paused reminder, healthy
+   runner, and a visible next occurrence.
+2. Empty connected home: no reminders, useful explanation, `Create reminder`.
+3. Disconnected/setup state and a concrete connection failure state.
+4. New reminder form: normal preset selection and expanded custom notification
+   timing.
+5. Edit reminder form with a destructive delete confirmation.
+6. History populated and empty.
+7. Settings with healthy, stale, and unavailable runner states.
+
+The prototype needs a task walkthrough attached to it: create a weekly
+reminder, understand its next notification, change its unattended Snooze from
+30 minutes to one day, pause it, and recover a disconnected service. If any
+step requires hunting or documentation, the design is not approved.
+
+### Prototype acceptance gate
+
+Before P0, render the prototype from representative fixture data and review it
+against the following questions:
+
+- Can the eye find `New reminder` in under two seconds?
+- Can the eye identify the next notification and runner condition without
+  reading a paragraph?
+- Is every destructive or state-changing control unmistakable?
+- Does the narrow layout retain the same hierarchy without horizontal scrolling
+  or a collapsed wall of controls?
+- Does the screen still make sense with large text, no reminders, a failed
+  connection, and a stale runner?
+
+Only after those answers are yes do we promote the prototype into the component
+implementation phases below.
+
 ## Design principles
 
 - **State before decoration.** The first screen shows active reminders and
@@ -151,6 +224,18 @@ require a Workshop source change, Tailwind scan configuration, or imports from
 Workshop’s internal component tree.
 
 ## Delivery sequence (TDD)
+
+### D0 — Visual prototype and approval
+
+- Build the required static prototype from public fixture data using the visual
+  contract above. It is deliberately non-production and has no private-service
+  access.
+- Render desktop and narrow-width screenshot fixtures for every required
+  screen.
+- Review the task walkthrough and revise the prototype before any API/UI
+  implementation begins.
+- Evidence: approved screenshot set, token sheet, component inventory, and
+  recorded design decisions. No production code is accepted in this phase.
 
 ### P0 — Truthful data and route contract
 
