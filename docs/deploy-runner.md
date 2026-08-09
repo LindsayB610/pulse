@@ -24,13 +24,13 @@ the public Git repository never receives real reminder definitions or tokens.
 Create a private Pulse folder outside both repositories with a
 `pulse.config.json` based on
 [../plugin/pulse.config.example.json](../plugin/pulse.config.example.json).
-The credential reference resolves only inside Workshop’s future generic secure
-service capability; the token is never exposed to Pulse’s webview.
+The credential reference resolves only inside Workshop’s generic secure-service
+capability; the token is never exposed to Pulse’s webview.
 
 ## Verification
 
-1. Create a forced test reminder through Pulse after the generic host
-   capability is available.
+1. Connect the private Pulse folder in Workshop and create a harmless test
+   reminder with its actual day, time, time zone, and repeat interval.
 2. Confirm the Netlify runner heartbeat is current.
 3. Confirm ntfy receives a high-priority notification.
 4. Tap Snooze, then Done, and confirm repeats stop.

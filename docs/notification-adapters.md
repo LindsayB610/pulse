@@ -10,15 +10,20 @@ for production Android push.
 
 The runner POSTs one notification per due occurrence to the configured private
 topic. The title identifies the due pulse, and every live notification includes
-**Done** and **Snooze 30 min** Android actions. Done acknowledges that exact
+**Done** and a duration-aware **Snooze** Android action. Done acknowledges that exact
 occurrence, clears the notification, and stops later repeats. Snooze moves the
-same occurrence forward thirty minutes; it remains active until Done. Neither
+same occurrence forward by that pulse's configured duration; it remains active until Done. Neither
 action requires an Android phone. Pulse is where pulses are created,
 paused, resumed, and deleted. ntfy payloads use high priority and the `bell`
 tag. A failed send is recorded and retried by the normal occurrence repeat
 policy.
 
 Adapters must not log secrets.
+
+`notificationPolicy.snoozeEveryMinutes` controls both the Android Snooze action
+and what happens when an alert is unanswered for two minutes. It defaults to
+`30`; use `1440` for a daily follow-up. The action label is rendered from the
+actual value, for example **Snooze 1 day**.
 
 ## Console
 

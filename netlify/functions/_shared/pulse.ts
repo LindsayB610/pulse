@@ -13,6 +13,23 @@ const lockLeaseMs = 55_000;
 
 type Lease = { owner: string; expiresAt: string };
 
+/** The small Blob surface Pulse actually relies on. Keeping it explicit makes
+ * the production adapter testable without ever pointing tests at real data. */
+export type PulseBlobStore = {
+  get: (key: string, options: { type: "json"; consistency: "strong" }) => Promise<unknown>;
+  getWithMetadata: (key: string, options: { type: "json"; consistency: "strong" }) => Promise<{ data: unknown; etag?: string } | null>;
+  setJSON: (key: string, value: unknown, options: { onlyIfNew?: boolean; onlyIfMatch?: string }) => Promise<{ modified: boolean }>;
+  delete: (key: string) => Promise<void>;
+};
+
+let testStore: PulseBlobStore | undefined;
+
+/** Test-only injection point for the Netlify function contract suite. It is
+ * intentionally not exported from the package surface or callable by clients. */
+export function setPulseBlobStoreForTest(value: PulseBlobStore | undefined): void {
+  testStore = value;
+}
+
 export async function runScheduledPulseTick(now: Date = new Date()): Promise<void> {
   await withPulseLock(async () => {
     const result = await withState(async (stateStore) => {
@@ -134,18 +151,23 @@ export async function markPulseDoneFromNotification(occurrenceId: string): Promi
 }
 
 export async function snoozePulseFromNotification(occurrenceId: string): Promise<Record<string, unknown>> {
-  return withPulseLock(() => withState((stateStore) => {
+  return withPulseLock(async () => {
+    const pulses = await readPulseDefinitions();
+    return withState((stateStore) => {
     const state = stateStore.read();
     const occurrence = state.occurrences.find((candidate) => candidate.id === occurrenceId);
     if (!occurrence) throw new PulseHttpError(404, "Occurrence not found.");
+    const pulse = pulses.find((candidate) => candidate.id === occurrence.pulseId);
+    if (!pulse) throw new PulseHttpError(404, "Pulse definition not found for occurrence.");
     if (occurrence.state === "done") return { occurrence, alreadyDone: true };
     if (occurrence.state === "scheduled") return { occurrence, alreadySnoozed: true };
     if (occurrence.state !== "due") throw new PulseHttpError(409, "Occurrence is not due yet.");
     const at = new Date();
+    const snoozeEveryMinutes = pulse.notificationPolicy?.snoozeEveryMinutes ?? 30;
     const snoozed = applyOccurrenceAction(occurrence, {
       type: "snooze",
       at,
-      until: new Date(at.getTime() + 30 * 60_000),
+      until: new Date(at.getTime() + snoozeEveryMinutes * 60_000),
     });
     state.occurrences = state.occurrences.map((candidate) => candidate.id === snoozed.id ? snoozed : candidate);
     state.events.push(createPulseEvent({
@@ -157,7 +179,8 @@ export async function snoozePulseFromNotification(occurrenceId: string): Promise
     }));
     stateStore.write(state);
     return { occurrence: snoozed, alreadyDone: false };
-  }));
+    });
+  });
 }
 
 export async function doneActionUrl(input: { occurrence: { id: string } }): Promise<string> {
@@ -188,7 +211,7 @@ export async function verifyNotificationAction(action: "done" | "snooze", occurr
   const valid = await crypto.subtle.verify(
     "HMAC",
     signature,
-    fromBase64Url(token),
+    fromBase64Url(token) as unknown as BufferSource,
     new TextEncoder().encode(`${action}:${occurrenceId}`),
   );
   if (!valid) throw new PulseHttpError(401, "Invalid notification action token.");
@@ -256,7 +279,9 @@ async function withPulseLock<T>(operation: () => Promise<T>): Promise<T> {
   throw new Error("Pulse state is busy; try again shortly.");
 }
 
-function store() { return getStore({ name: "pulse", consistency: "strong" }); }
+function store(): PulseBlobStore {
+  return testStore ?? getStore({ name: "pulse", consistency: "strong" }) as unknown as PulseBlobStore;
+}
 
 function requiredEnv(name: string): string {
   const value = process.env[name];

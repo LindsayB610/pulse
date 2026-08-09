@@ -20,9 +20,10 @@ checkout before running the command examples.
 2. The runner schedules an occurrence.
 3. When the occurrence becomes due, the runner sends a notification.
 4. If neither notification action is used, wait two minutes and confirm Pulse
-   automatically snoozes the occurrence for thirty minutes.
-5. Tap **Snooze 30 min** on the Android notification and confirm a new
-   notification arrives approximately thirty minutes later.
+   automatically snoozes the occurrence for its configured duration (30 minutes
+   by default).
+5. Tap the duration-aware **Snooze** button on the Android notification and
+   confirm a new notification arrives after that configured duration.
 6. Tap **Done** on that notification.
 7. Confirm no more notifications are sent for that occurrence and completion
    history is present in `state.json`.

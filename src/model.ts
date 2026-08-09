@@ -24,6 +24,8 @@ export type PulseSchedule = WeeklyPulseSchedule;
 export type NotificationPolicy = {
   channels: string[];
   repeatEveryMinutes: number;
+  /** How long an unattended or Android-snoozed occurrence waits before it is due again. */
+  snoozeEveryMinutes?: number;
 };
 
 export type PulseDefinition = {
@@ -329,9 +331,17 @@ function parseNotificationPolicy(input: unknown): NotificationPolicy {
     throw new Error("Notification policy must include channels.");
   }
 
+  const snoozeEveryMinutes = input.snoozeEveryMinutes === undefined
+    ? undefined
+    : requiredNumber(input, "snoozeEveryMinutes");
+  if (snoozeEveryMinutes !== undefined && (!Number.isInteger(snoozeEveryMinutes) || snoozeEveryMinutes < 1)) {
+    throw new Error("Notification policy snoozeEveryMinutes must be a positive whole number.");
+  }
+
   return {
     channels: channels.map((channel) => stringValue(channel, "notification channel")),
     repeatEveryMinutes: requiredNumber(input, "repeatEveryMinutes"),
+    ...(snoozeEveryMinutes === undefined ? {} : { snoozeEveryMinutes }),
   };
 }
 

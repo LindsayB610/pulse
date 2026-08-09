@@ -48,7 +48,7 @@ export type PulseRunnerTickResult = {
 const defaultRepeatEveryMinutes = 60;
 const defaultChannels = ["console"];
 const automaticSnoozeGraceMinutes = 2;
-const automaticSnoozeMinutes = 30;
+const defaultSnoozeEveryMinutes = 30;
 
 export async function runPulseRunnerTick(input: PulseRunnerTickInput): Promise<PulseRunnerTickResult> {
   return input.stateStore.withExclusive(() => runPulseRunnerTickExclusive(input));
@@ -121,12 +121,13 @@ async function runPulseRunnerTickExclusive(input: PulseRunnerTickInput): Promise
 
     const channels = pulse.notificationPolicy?.channels ?? defaultChannels;
     const repeatEveryMinutes = pulse.notificationPolicy?.repeatEveryMinutes ?? defaultRepeatEveryMinutes;
+    const snoozeEveryMinutes = pulse.notificationPolicy?.snoozeEveryMinutes ?? defaultSnoozeEveryMinutes;
 
     if (!justBecameDue && shouldAutomaticallySnooze(state.events, occurrence, input.now)) {
       const snoozed = applyOccurrenceAction(occurrence, {
         type: "snooze",
         at: input.now,
-        until: new Date(input.now.getTime() + automaticSnoozeMinutes * 60 * 1000),
+        until: new Date(input.now.getTime() + snoozeEveryMinutes * 60 * 1000),
       });
       Object.assign(occurrence, snoozed);
       state.events.push(

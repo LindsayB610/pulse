@@ -101,6 +101,25 @@ test("ntfy due notifications include one-tap Done and Snooze actions when config
   );
 });
 
+test("ntfy Snooze action label reflects the pulse-specific duration", async () => {
+  const requests = [];
+  const adapter = createNtfyNotificationAdapter({
+    topic: "private-pulse-topic",
+    doneActionUrl: async () => "https://pulse.example.test/done",
+    snoozeActionUrl: async () => "https://pulse.example.test/snooze",
+    fetch: async (url, init) => { requests.push({ url, init }); return { ok: true, status: 200 }; },
+  });
+
+  await adapter.send({
+    channel: "ntfy",
+    pulse: { ...pulse, notificationPolicy: { ...pulse.notificationPolicy, snoozeEveryMinutes: 1440 } },
+    occurrence,
+    now: new Date("2026-06-28T16:00:00.000Z"),
+  });
+
+  assert.match(requests[0].init.headers.actions, /Snooze 1 day/);
+});
+
 test("notification action routes decode the occurrence ID before signature verification", () => {
   assert.equal(
     notificationActionOccurrenceId("weekly-demo-check%3A2026-06-28T16%3A00%3A00.000Z"),

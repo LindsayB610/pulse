@@ -22,12 +22,17 @@ Healthy signs:
 
 Tap **Done** in the Android notification when the reminder is complete. This
 stops repeat notifications for that occurrence without opening Workshop. Tap
-**Snooze 30 min** to move that same reminder forward thirty minutes; it will
+the duration-aware **Snooze** button to move that same reminder forward by its
+configured interval; it will
 notify again until you tap Done.
 
 If neither action is taken, Pulse treats the reminder as snoozed after two
-minutes and schedules the next notification for thirty minutes later. The
+minutes and schedules the next notification for that pulse's configured snooze
+duration later. The
 notification is not silently dismissed; only Done ends the occurrence.
+
+Set **If unanswered, snooze for (minutes)** when creating the reminder in
+Workshop. It defaults to `30`; enter `1440` for a daily follow-up.
 
 Workshop's Pulse tool is for creating, pausing, resuming, and deleting
 reminders. The runner remains the source of truth; Workshop does not need to

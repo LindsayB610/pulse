@@ -23,18 +23,17 @@ The product promise is:
 | 2 | Complete | Done-or-snooze state machine | Done closes an occurrence; Snooze moves it forward thirty minutes without ending it. |
 | 3 | Complete | Local private data contract | Real pulses, secrets, delivery settings, and history live in private local config outside the public repo. |
 | 4 | Complete | Runner loop | A headless runner detects due occurrences, sends notifications, retries, and prevents duplicate sends. |
-| 5 | Implemented — live phone proof pending | Android push notification adapters | Replace the retired Twilio SMS path with ntfy Android push and phone-native Done/Snooze actions. |
+| 5 | Complete | Android push notification adapters | Replace the retired Twilio SMS path with ntfy Android push and phone-native Done/Snooze actions. |
 | 6 | Superseded | VPS/self-hosting docs | Netlify scheduled functions are the supported production mode for this release; VPS instructions are historical. |
-| 7 | In progress | Pulse-owned plugin UI | Pulse owns its view, routes, forms, and tests; Workshop is an optional host. |
-| 8 | Blocked on host capability | Generic secure service | Workshop must supply the proposed generic secret-preserving service capability. |
+| 7 | Complete | Pulse-owned plugin UI | Pulse owns its view, routes, creation form, and mounted UI tests; Workshop is an optional host. |
+| 8 | Complete | Generic secure service | Workshop supplies the generic secret-preserving service capability. |
 | 9 | Complete | Release hardening | Backup, restore, migrations, security review, and end-to-end acceptance gates are documented and tested. |
 
-## Pulse Rebuild Program — Review First
+## Pulse Rebuild Program — Historical Record
 
-**Status: implementation through R7 is in progress.** The owner requested one
-consolidated review after the full R1–R7 package, so these phases are being
-built and verified as a single controlled batch. They are not individually
-accepted until that review.
+**Status: R0–R7 are complete for the current weekly-only product.** The next
+product build is bounded recurrence; it is deliberately not folded into this
+historical rebuild record.
 
 ### Product decisions already made
 
@@ -51,14 +50,14 @@ accepted until that review.
 | Rebuild phase | Status | Outcome | Review gate before implementation | Acceptance evidence |
 | --- | --- | --- | --- | --- |
 | R0 — Rebaseline | Accepted | Record the agreed product boundary and inventory the current exploratory changes. | Confirm this plan and identify which exploratory changes belong to which phase. | Clean change inventory; no implementation is treated as accepted by default. |
-| R1 — Private delivery contract | Implemented — consolidated verification pending | Define the public/private configuration contract for ntfy, the runner API, and Android device setup. | Private config, state, tokens, and topics stay outside both public repositories. | Tests reject missing/invalid config; docs never include real topic names or tokens. |
-| R2 — ntfy provider | Implemented — live phone proof pending | Make ntfy the supported production notification adapter and retain console only for local testing. | Title/body identify the due obligation; high-priority `bell` push repeats until Done or Snooze. | Mocked HTTP payload/config/error/redaction tests; Android manual test checklist. |
-| R3 — Private runner API | Implemented — live phone proof pending | Define the versioned, authenticated hosted-runner contract. | Netlify private storage is authoritative; bearer credentials never enter a plugin webview. | Contract tests for snapshot, configuration, Done/Snooze payloads, and fail-closed startup. |
-| R4 — Pulse plugin package | In progress | Export Pulse-owned declaration, routes, view, models, and tests. | No Workshop-source imports; plugin stays planned until host capability acceptance. | Package-surface and public-boundary tests. |
-| R5 — Generic service handoff | In progress | Specify the host capability Pulse needs without adding Pulse-named Workshop commands. | Host reads secret internally; plugin supplies only constrained requests. | Proposal and expected host test matrix. |
-| R6 — Deployment clarity | In progress | Support Netlify scheduled functions as the production mode for this release. | Historical VPS/SSH instructions are explicitly superseded. | Docs and API compatibility checks. |
-| R7 — Cloud runner and Android proof | Implemented — manual external proof pending | Deploy Netlify scheduled functions that run the repeat loop and expose the private API safely. | Netlify Blobs holds private state and definitions; Android receives signed phone actions. | Automated deployment/static checks plus the documented end-to-end Android proof checklist. |
-| R8 — Release and operations | Proposed | Re-run public-boundary, recovery, backup, migration, and operator checks for the rebuilt product. | Review release checklist and rollback plan. | Clean-clone/public-boundary proof plus documented private deployment verification. |
+| R1 — Private delivery contract | Complete | Define the public/private configuration contract for ntfy, the runner API, and Android device setup. | Private config, state, tokens, and topics stay outside both public repositories. | Tests reject missing/invalid config; docs never include real topic names or tokens. |
+| R2 — ntfy provider | Complete | Make ntfy the supported production notification adapter and retain console only for local testing. | Title/body identify the due obligation; high-priority `bell` push repeats until Done or Snooze. | Mocked HTTP payload/config/error/redaction tests and Android proof. |
+| R3 — Private runner API | Complete | Define the versioned, authenticated hosted-runner contract. | Netlify private storage is authoritative; bearer credentials never enter a plugin webview. | Contract tests for snapshot, configuration, Done/Snooze payloads, and fail-closed startup. |
+| R4 — Pulse plugin package | Complete | Export Pulse-owned declaration, routes, configurable weekly creator, view, models, and tests. | No Workshop-source imports; plugin uses the generic host capability. | Package, mounted UI, and public-boundary tests. |
+| R5 — Generic service handoff | Complete | Use the generic host capability without adding Pulse-named Workshop commands. | Host reads secret internally; plugin supplies only constrained requests. | Pulse command-contract test and Workshop host tests. |
+| R6 — Deployment clarity | Complete | Support Netlify scheduled functions as the production mode for this release. | Historical VPS/SSH instructions are explicitly superseded. | Docs, Netlify typecheck, endpoint, and Blob-lock compatibility checks. |
+| R7 — Cloud runner and Android proof | Complete | Netlify scheduled functions run the repeat loop and expose the private API safely. | Netlify Blobs holds private state and definitions; Android receives signed phone actions. | Automated deployment/static checks and live Android Done/Snooze proof. |
+| R8 — Release and operations | Complete | Re-run public-boundary, recovery, backup, migration, and operator checks for the rebuilt product. | Review release checklist and rollback plan. | Clean-clone/public-boundary proof plus documented private deployment verification. |
 
 ### Exploratory work currently present
 

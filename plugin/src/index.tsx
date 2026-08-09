@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { pulseDefinitionFromForm } from "./definition.js";
+import { daysOfWeek, pulseDefinitionFromForm } from "./definition.js";
 import { createPulseService } from "./service.js";
 import type { SecureServiceRequester } from "./service.js";
 import { createWorkshopSecureServiceRequester } from "./workshop-host.js";
@@ -58,15 +58,20 @@ export function WorkshopToolView({ activeRouteId = "reminders", workspaceRoot, r
 export function PulseManagementView({ request }: { request: SecureServiceRequester }): React.ReactElement {
   const service = createPulseService(request);
   const [title, setTitle] = useState("");
+  const [day, setDay] = useState("sunday");
+  const [time, setTime] = useState("09:00");
+  const [repeat, setRepeat] = useState("30");
+  const [snooze, setSnooze] = useState("30");
+  const [timezone, setTimezone] = useState("America/Los_Angeles");
   const [status, setStatus] = useState("");
-  const [pulses, setPulses] = useState<Array<{ id: string; title: string; active: boolean }>>([]);
-  const refresh = async () => { try { const response = await service.snapshot(); setPulses(Array.isArray(response.body.pulses) ? response.body.pulses as Array<{ id: string; title: string; active: boolean }> : []); setStatus("Reminders refreshed."); } catch { setStatus("Pulse could not refresh reminders."); } };
+  const [pulses, setPulses] = useState<Array<{ id: string; title: string; active: boolean; schedule?: { type?: string; daysOfWeek?: string[]; time?: string; timezone?: string } }>>([]);
+  const refresh = async (successMessage = "Reminders refreshed.") => { try { const response = await service.snapshot(); setPulses(Array.isArray(response.body.pulses) ? response.body.pulses as Array<{ id: string; title: string; active: boolean; schedule?: { type?: string; daysOfWeek?: string[]; time?: string; timezone?: string } }> : []); setStatus(successMessage); } catch { setStatus("Pulse could not refresh reminders."); } };
   useEffect(() => { void refresh(); }, [request]);
   const create = async () => {
-    try { await service.create(pulseDefinitionFromForm({ title, day: "sunday", time: "09:00", repeat: "60", timezone: "America/Los_Angeles" })); setTitle(""); setStatus("Reminder saved."); }
+    try { await service.create(pulseDefinitionFromForm({ title, day, time, repeat, snooze, timezone })); setTitle(""); await refresh("Reminder saved."); }
     catch (error) { setStatus(error instanceof Error ? error.message : "Pulse could not save the reminder."); }
   };
   const toggle = async (pulse: { id: string; title: string; active: boolean }) => { try { await service.update(pulse.id, { ...pulse, active: !pulse.active }); await refresh(); } catch { setStatus("Pulse could not update the reminder."); } };
   const remove = async (pulse: { id: string }) => { try { await service.remove(pulse.id); await refresh(); } catch { setStatus("Pulse could not delete the reminder."); } };
-  return <section aria-label="Pulse reminders"><h2>Pulse reminders</h2><label>Name<input aria-label="Reminder name" value={title} onChange={(event) => setTitle(event.target.value)} /></label><button onClick={() => void create()}>Create reminder</button><button onClick={() => void refresh()}>Refresh</button><ul>{pulses.map((pulse) => <li key={pulse.id}>{pulse.title}<button onClick={() => void toggle(pulse)}> {pulse.active ? "Pause" : "Resume"}</button><button onClick={() => void remove(pulse)}>Delete</button></li>)}</ul><p role="status">{status}</p></section>;
+  return <section aria-label="Pulse reminders"><h2>Pulse reminders</h2><form onSubmit={(event) => { event.preventDefault(); void create(); }}><label>Name<input aria-label="Reminder name" value={title} onChange={(event) => setTitle(event.target.value)} /></label><label>Day<select aria-label="Reminder day" value={day} onChange={(event) => setDay(event.target.value)}>{daysOfWeek.map((value) => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</select></label><label>Time<input aria-label="Reminder time" type="time" value={time} onChange={(event) => setTime(event.target.value)} /></label><label>Repeat notification every (minutes)<input aria-label="Repeat notification minutes" type="number" min="1" value={repeat} onChange={(event) => setRepeat(event.target.value)} /></label><label>If unanswered, snooze for (minutes)<input aria-label="Unanswered snooze minutes" type="number" min="1" value={snooze} onChange={(event) => setSnooze(event.target.value)} /></label><label>Time zone<input aria-label="Reminder time zone" value={timezone} onChange={(event) => setTimezone(event.target.value)} /></label><button type="submit">Create reminder</button></form><button onClick={() => void refresh()}>Refresh</button><ul>{pulses.map((pulse) => <li key={pulse.id}><strong>{pulse.title}</strong>{pulse.schedule?.daysOfWeek && pulse.schedule.time ? <span> · {pulse.schedule.daysOfWeek.join(", ")} at {pulse.schedule.time} ({pulse.schedule.timezone ?? "local time"})</span> : null}<button onClick={() => void toggle(pulse)}> {pulse.active ? "Pause" : "Resume"}</button><button onClick={() => void remove(pulse)}>Delete</button></li>)}</ul><p role="status">{status}</p></section>;
 }

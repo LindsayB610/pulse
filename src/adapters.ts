@@ -72,7 +72,7 @@ export function createNtfyNotificationAdapter(options: NtfyNotificationAdapterOp
           title: `Pulse: ${input.pulse.title}`,
           ...(doneActionUrl === undefined && snoozeActionUrl === undefined
             ? {}
-            : { actions: notificationActions(doneActionUrl, snoozeActionUrl) }),
+            : { actions: notificationActions(doneActionUrl, snoozeActionUrl, input.pulse.notificationPolicy?.snoozeEveryMinutes ?? 30) }),
         },
         body: formatNtfyBody(input),
       });
@@ -117,11 +117,17 @@ export function createNotificationDispatcherFromEnv(
   throw new Error(`Unsupported PULSE_NOTIFY_PROVIDER: ${provider}`);
 }
 
-function notificationActions(doneActionUrl: string | undefined, snoozeActionUrl: string | undefined): string {
+function notificationActions(doneActionUrl: string | undefined, snoozeActionUrl: string | undefined, snoozeEveryMinutes: number): string {
   return [
     ...(doneActionUrl === undefined ? [] : [`http, Mark done, ${doneActionUrl}, method=POST, clear=true`]),
-    ...(snoozeActionUrl === undefined ? [] : [`http, Snooze 30 min, ${snoozeActionUrl}, method=POST, clear=true`]),
+    ...(snoozeActionUrl === undefined ? [] : [`http, Snooze ${formatSnoozeDuration(snoozeEveryMinutes)}, ${snoozeActionUrl}, method=POST, clear=true`]),
   ].join("; ");
+}
+
+function formatSnoozeDuration(minutes: number): string {
+  if (minutes % 1440 === 0) return `${minutes / 1440} day${minutes === 1440 ? "" : "s"}`;
+  if (minutes % 60 === 0) return `${minutes / 60} hour${minutes === 60 ? "" : "s"}`;
+  return `${minutes} min`;
 }
 
 const consoleWriter: ConsoleNotificationWriter = {

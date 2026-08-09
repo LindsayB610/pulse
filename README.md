@@ -9,7 +9,7 @@ It is a small public engine for private self-hosted runners.
 ## Current Status
 
 The durable engine, ntfy delivery, authenticated runner API, and independently
-versioned Workshop plugin are being completed as one rebuild package:
+versioned Workshop plugin are complete for the current weekly-reminder model:
 
 - public repo boundary
 - TypeScript package shape
@@ -20,7 +20,7 @@ versioned Workshop plugin are being completed as one rebuild package:
 - public example configs
 - private config guardrails
 - self-hosting documentation
-- Pulse-owned plugin UI and generic secure-service host-capability proposal
+- Pulse-owned plugin UI using Workshop's generic secure-service capability
 - release hardening with backup, restore, migration, import validation, and
   release checklist gates
 
@@ -50,12 +50,18 @@ Start with:
 
 ```sh
 npm test
+npm run test:coverage
 npm run typecheck
 npm run build
 npm run docs:check
 ```
 
-Pulse owns its management UI and can run inside Workshop as an independently
+Pulse owns its management UI and runs inside Workshop as an independently
 versioned app. Workshop is only the desktop host. The plugin uses Workshop's
 generic secure-service capability documented in
 [docs/workshop-secure-service-capability.md](docs/workshop-secure-service-capability.md).
+
+The current creator supports a weekly reminder name, day, time, IANA time zone,
+and the notification-repeat interval. Calendar-style bounded recurrence
+(one-time, daily, weekly, monthly, yearly, expiry, and renewal) is the next
+separate feature build; it is not silently implied by the current weekly model.

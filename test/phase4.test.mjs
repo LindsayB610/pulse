@@ -125,6 +125,34 @@ test("runner automatically snoozes an unanswered notification after two minutes 
   assert.equal(store.read().events.filter((event) => event.type === "notification_sent").length, 2);
 });
 
+test("runner honors a pulse-specific unattended snooze duration", async () => {
+  const state = createEmptyPulseState();
+  state.occurrences.push({
+    id: "weekly-demo-check:2026-06-28T16:00:00.000Z",
+    pulseId: "weekly-demo-check",
+    dueAt: "2026-06-28T16:00:00.000Z",
+    state: "due",
+  });
+  state.events.push({
+    id: "evt:weekly-demo-check:notification_sent:2026-06-28T16:00:00.000Z",
+    pulseId: "weekly-demo-check",
+    occurrenceId: "weekly-demo-check:2026-06-28T16:00:00.000Z",
+    type: "notification_sent",
+    at: "2026-06-28T16:00:00.000Z",
+    metadata: { channel: "console", ok: true },
+  });
+  const store = createMemoryPulseStateStore(state);
+
+  await runPulseRunnerTick({
+    now: new Date("2026-06-28T16:02:00.000Z"),
+    pulses: [{ ...weeklyPulse, notificationPolicy: { ...weeklyPulse.notificationPolicy, snoozeEveryMinutes: 1440 } }],
+    stateStore: store,
+    notifier: createFakeNotifier(),
+  });
+
+  assert.equal(store.read().occurrences[0].dueAt, "2026-06-29T16:02:00.000Z");
+});
+
 test("runner stops notifications after Done", async () => {
   const state = createEmptyPulseState();
   state.occurrences.push({

@@ -26,14 +26,20 @@
     "format:check": "node scripts/check-format.mjs",
     "lint": "node scripts/lint-public-boundary.mjs",
     "smoke:compose": "node scripts/smoke-compose.mjs",
-    "test": "npm run build && npm run build:plugin && node --test test/*.test.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "test": "npm run build && npm run build:plugin && npm run typecheck:netlify && node --test test/*.test.mjs && tsx --test test/netlify-functions.test.ts",
+    "test:coverage": "npm run build && npm run build:plugin && npm run typecheck:netlify && node --test --experimental-test-coverage test/*.test.mjs && tsx --test --experimental-test-coverage test/netlify-functions.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:netlify": "tsc -p netlify/tsconfig.json --noEmit"
   },
   "devDependencies": {
     "@tauri-apps/api": "^2.11.1",
     "@types/node": "^26.0.1",
     "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.2.4",
+    "jsdom": "^26.1.0",
     "react": "^19.0.0",
+    "react-dom": "^19.2.8",
+    "tsx": "^4.23.11",
     "typescript": "^5.5.4"
   },
   "engines": {
