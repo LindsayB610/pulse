@@ -22,14 +22,16 @@ checkout before running the command examples.
 4. If neither notification action is used, wait two minutes and confirm Pulse
    automatically snoozes the occurrence for its configured duration (30 minutes
    by default).
-5. Tap the duration-aware **Snooze** button on the Android notification and
+5. Before that automatic snooze expires, tap the original notification's
+   **Done** action and confirm it succeeds rather than returning an error.
+6. Start another test occurrence, tap the duration-aware **Snooze** button on the Android notification, and
    confirm a new notification arrives after that configured duration in the
    same ntfy notification chain.
-6. Tap **Done** on that notification.
-7. Confirm that occurrence's notification chain disappears from ntfy, no more
+7. Tap **Done** on that notification.
+8. Confirm that occurrence's notification chain disappears from ntfy, no more
    notifications are sent for it, and completion history is present in
    `state.json`.
-8. Confirm other Pulse notifications and the saved recurring Pulse definition
+9. Confirm other Pulse notifications and the saved recurring Pulse definition
    remain intact.
 
 ## Done fallback command

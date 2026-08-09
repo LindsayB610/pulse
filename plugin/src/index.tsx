@@ -314,7 +314,7 @@ function RemindersPage({ snapshot, loading, onNew, onEdit, onToggle }: { snapsho
           const occurrence = openOccurrence(snapshot, pulse.id);
           const isDue = occurrence?.state === "due";
           return <article className={`pulse-ui__card${pulse.active ? "" : " pulse-ui__card--paused"}`} key={pulse.id}>
-            <div className="pulse-ui__card-main"><div className="pulse-ui__card-title-row"><h3>{pulse.title}</h3><span className={`pulse-ui__badge${isDue ? " pulse-ui__badge--due" : ""}`}>{!pulse.active ? "Paused" : isDue ? "Due now" : "Active"}</span></div><p className="pulse-ui__schedule">{scheduleLabel(pulse)}{occurrence && !isDue ? ` · next ${formatDate(occurrence.dueAt)}` : ""}</p><p className="pulse-ui__policy">Snooze or no action: {minutesLabel(pulse.notificationPolicy?.snoozeEveryMinutes)} · Delivery retry: {minutesLabel(pulse.notificationPolicy?.repeatEveryMinutes)}</p></div>
+            <div className="pulse-ui__card-main"><div className="pulse-ui__card-title-row"><h3>{pulse.title}</h3><span className={`pulse-ui__badge${isDue ? " pulse-ui__badge--due" : ""}`}>{!pulse.active ? "Paused" : isDue ? "Due now" : "Active"}</span></div><p className="pulse-ui__schedule">{scheduleLabel(pulse)}{occurrence && !isDue ? ` · next ${formatDate(occurrence.dueAt)}` : ""}</p><p className="pulse-ui__policy">Snooze or no action: {minutesLabel(pulse.notificationPolicy?.snoozeEveryMinutes)}</p></div>
             <div className="pulse-ui__actions"><button className="pulse-ui__button" type="button" onClick={() => onToggle(pulse)}>{pulse.active ? "Pause" : "Resume"}</button><button className="pulse-ui__button" type="button" onClick={() => onEdit(pulse)}>Edit</button></div>
           </article>;
         })}</div>}
@@ -325,13 +325,12 @@ function ReminderEditor({ pulse, onCancel, onDelete, onSave }: { pulse?: PulseDe
   const [title, setTitle] = useState(pulse?.title ?? "");
   const [day, setDay] = useState(pulse?.schedule?.daysOfWeek?.[0] ?? "sunday");
   const [time, setTime] = useState(pulse?.schedule?.time ?? "09:00");
-  const [repeat, setRepeat] = useState(String(pulse?.notificationPolicy?.repeatEveryMinutes ?? 30));
   const [snooze, setSnooze] = useState(String(pulse?.notificationPolicy?.snoozeEveryMinutes ?? 30));
   const [timezone, setTimezone] = useState(pulse?.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "America/Los_Angeles");
   const [formError, setFormError] = useState("");
   const submit = async () => {
     try {
-      const formDefinition = pulseDefinitionFromForm({ id: pulse?.id, title, day, time, repeat, snooze, timezone, active: pulse?.active ?? true });
+      const formDefinition = pulseDefinitionFromForm({ id: pulse?.id, title, day, time, snooze, timezone, active: pulse?.active ?? true });
       await onSave(pulse ? { ...pulse, ...formDefinition } as PulseDefinition : formDefinition as PulseDefinition);
     } catch (caught) { setFormError(caught instanceof Error ? caught.message : "Check the reminder details and try again."); }
   };
@@ -340,8 +339,7 @@ function ReminderEditor({ pulse, onCancel, onDelete, onSave }: { pulse?: PulseDe
     <form className="pulse-ui__panel pulse-ui__form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
       <label className="pulse-ui__field">Reminder name<input aria-label="Reminder name" autoFocus value={title} placeholder="What needs your attention?" onChange={(event) => setTitle(event.target.value)} /></label>
       <div className="pulse-ui__form-grid"><label className="pulse-ui__field">Day<select aria-label="Reminder day" value={day} onChange={(event) => setDay(event.target.value)}>{daysOfWeek.map((value) => <option key={value} value={value}>{titleCase(value)}</option>)}</select></label><label className="pulse-ui__field">Time<input aria-label="Reminder time" type="time" value={time} onChange={(event) => setTime(event.target.value)} /></label></div>
-      <div className="pulse-ui__timing-grid">
-        <TimingControl title="Repeat while due" description="If delivery fails while a reminder is due, this controls the retry interval." ariaLabel="Repeat notification minutes" value={repeat} onChange={setRepeat} />
+      <div className="pulse-ui__timing-grid pulse-ui__timing-grid--single">
         <TimingControl title="Snooze and no action" description="Used after Snooze, or when you do nothing for two minutes." ariaLabel="Unanswered snooze minutes" value={snooze} onChange={setSnooze} />
       </div>
       <label className="pulse-ui__field">Time zone<input aria-label="Reminder time zone" value={timezone} onChange={(event) => setTimezone(event.target.value)} /><small>Use an IANA time zone, such as America/Los_Angeles. Pulse handles daylight-saving changes.</small></label>
@@ -375,7 +373,7 @@ function SettingsPage({ snapshot, workspaceRoot, onWorkspaceRootChange }: { snap
   }, [changingFolder, workspaceRoot]);
   const selectedRoot = nextRoot.trim();
   const canChangeFolder = selectedRoot !== "" && selectedRoot !== workspaceRoot;
-  return <section className="pulse-ui__page" aria-labelledby="pulse-settings-heading"><header className="pulse-ui__page-head"><div><p className="pulse-ui__eyebrow">Connection</p><h2 id="pulse-settings-heading">Pulse settings</h2><p className="pulse-ui__lede">See how this installation reaches your private runner. Secrets remain outside the webview.</p></div></header><div className="pulse-ui__settings">
+  return <section className="pulse-ui__page" aria-labelledby="pulse-settings-heading"><header className="pulse-ui__page-head"><div><p className="pulse-ui__eyebrow">Connection</p><h2 id="pulse-settings-heading">Pulse settings</h2><p className="pulse-ui__lede pulse-ui__lede--wide">See how this installation reaches your private runner. Secrets remain outside the webview.</p></div></header><div className="pulse-ui__settings">
     <div className="pulse-ui__setting"><div><h3>{online ? "Runner is online" : stale ? "Runner heartbeat is stale" : "Runner status unavailable"}</h3><p>{online ? `Last checked ${formatDate(snapshot.runnerHealth?.checkedAt)}` : stale ? `The last check was ${formatDate(snapshot.runnerHealth?.checkedAt)}. Notifications may be delayed until the runner resumes.` : "Pulse has not received a current health report."}</p></div><span className="pulse-ui__badge">{online ? "Online" : stale ? "Needs attention" : "Unknown"}</span></div>
     <div className="pulse-ui__setting pulse-ui__setting--folder"><div className="pulse-ui__setting-main"><h3>Private Pulse folder</h3><p>Reminder definitions and the service configuration live outside the public Pulse package.</p>{workspaceRoot && <code>{workspaceRoot}</code>}{changingFolder && <form className="pulse-ui__folder-editor" onSubmit={(event) => {
       event.preventDefault();

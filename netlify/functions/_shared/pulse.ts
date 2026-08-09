@@ -1,7 +1,7 @@
 import { getStore } from "@netlify/blobs";
 
 import { createNotificationDispatcherFromEnv } from "../../../src/adapters.js";
-import { loadPulseDefinitionsFromYaml, parsePulseDefinitions, applyOccurrenceAction, createPulseEvent, type PulseDefinition } from "../../../src/model.js";
+import { loadPulseDefinitionsFromYaml, parsePulseDefinitions, applyOccurrenceAction, canCompleteOccurrence, createPulseEvent, type PulseDefinition } from "../../../src/model.js";
 import { isPulseNtfySequenceId } from "../../../src/ntfy-sequence.js";
 import { runPulseRunnerTick } from "../../../src/runner.js";
 import { createEmptyPulseState, createMemoryPulseStateStore, type PulseState } from "../../../src/storage.js";
@@ -108,7 +108,7 @@ export async function markPulseDone(occurrenceId: string, completionNote?: strin
     const occurrence = state.occurrences.find((candidate) => candidate.id === occurrenceId);
     if (!occurrence) throw new PulseHttpError(404, "Occurrence not found.");
     if (occurrence.state === "done") throw new PulseHttpError(409, "Occurrence is already done.");
-    if (occurrence.state !== "due") throw new PulseHttpError(409, "Occurrence is not due yet.");
+    if (!canCompleteOccurrence(occurrence)) throw new PulseHttpError(409, "Occurrence is not active yet.");
     const action = { type: "done" as const, at: new Date(), ...(completionNote === undefined ? {} : { completionNote }) };
     const completed = applyOccurrenceAction(occurrence, action);
     state.occurrences = state.occurrences.map((candidate) => candidate.id === completed.id ? completed : candidate);
@@ -135,7 +135,7 @@ export async function markPulseDoneFromNotification(occurrenceId: string): Promi
     const occurrence = state.occurrences.find((candidate) => candidate.id === occurrenceId);
     if (!occurrence) throw new PulseHttpError(404, "Occurrence not found.");
     if (occurrence.state === "done") return { occurrence, alreadyDone: true };
-    if (occurrence.state !== "due") throw new PulseHttpError(409, "Occurrence is not due yet.");
+    if (!canCompleteOccurrence(occurrence)) throw new PulseHttpError(409, "Occurrence is not active yet.");
     const action = { type: "done" as const, at: new Date(), completionNote: "Acknowledged from Android notification." };
     const completed = applyOccurrenceAction(occurrence, action);
     state.occurrences = state.occurrences.map((candidate) => candidate.id === completed.id ? completed : candidate);

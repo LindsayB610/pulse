@@ -29,6 +29,7 @@ export const pulseStyles = `
 .pulse-ui h3 { font-size: 18px; letter-spacing: -.015em; margin-bottom: 5px; }
 .pulse-ui__lede, .pulse-ui__muted { color: var(--pulse-muted); line-height: 1.55; }
 .pulse-ui__lede { margin-bottom: 0; max-width: 610px; }
+.pulse-ui__lede--wide { max-width: 780px; }
 .pulse-ui__button { min-height: 42px; border: 1px solid var(--pulse-line); border-radius: 11px; background: rgba(255,255,255,.055); padding: 9px 14px; cursor: pointer; font-weight: 750; transition: background .15s ease, border-color .15s ease, transform .15s ease; }
 .pulse-ui__button:hover { background: rgba(255,255,255,.095); border-color: rgba(255,255,255,.2); }
 .pulse-ui__button:active { transform: translateY(1px); }
@@ -64,6 +65,7 @@ export const pulseStyles = `
 .pulse-ui__field input:hover, .pulse-ui__field select:hover { border-color: rgba(255,255,255,.27); }
 .pulse-ui__form-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px; }
 .pulse-ui__timing-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+.pulse-ui__timing-grid--single { grid-template-columns: minmax(0, 1fr); }
 .pulse-ui__timing { border: 1px solid var(--pulse-line); border-radius: 14px; padding: 16px; background: rgba(0,0,0,.16); }
 .pulse-ui__timing h3 { font-size: 15px; }
 .pulse-ui__timing p { color: var(--pulse-muted); font-size: 13px; line-height: 1.45; min-height: 38px; }

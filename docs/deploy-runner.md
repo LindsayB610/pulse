@@ -30,7 +30,7 @@ capability; the token is never exposed to Pulse’s webview.
 ## Verification
 
 1. Connect the private Pulse folder in Workshop and create a harmless test
-   reminder with its actual day, time, time zone, and repeat interval.
+   reminder with its actual day, time, time zone, and snooze interval.
 2. Confirm the Netlify runner heartbeat is current.
 3. Confirm ntfy receives a high-priority notification.
 4. Tap Snooze, then Done, and confirm repeats stop.

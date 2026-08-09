@@ -77,10 +77,10 @@ test("done occurrence cannot become due again", () => {
   );
 });
 
-test("only due occurrences can be completed", () => {
+test("an ordinary future scheduled occurrence cannot be completed", () => {
   assert.throws(
     () => completeOccurrence(scheduledOccurrence(), { completedAt: new Date("2026-06-28T16:07:00.000Z") }),
-    /Only due occurrences can be completed/,
+    /Only due or snoozed occurrences can be completed/,
   );
 });
 
@@ -112,6 +112,29 @@ test("snooze moves a due occurrence to its next reminder time", () => {
     snoozedAt: "2026-06-28T16:00:00.000Z",
     snoozeCount: 1,
   });
+});
+
+test("done overrides an active snooze without waiting for it to become due again", () => {
+  const due = scheduledOccurrence({ state: "due" });
+  const snoozed = applyOccurrenceAction(due, {
+    type: "snooze",
+    at: new Date("2026-06-28T16:02:00.000Z"),
+    until: new Date("2026-06-28T16:32:00.000Z"),
+  });
+
+  assert.deepEqual(
+    applyOccurrenceAction(snoozed, {
+      type: "done",
+      at: new Date("2026-06-28T16:05:00.000Z"),
+    }),
+    {
+      id: snoozed.id,
+      pulseId: snoozed.pulseId,
+      dueAt: snoozed.dueAt,
+      state: "done",
+      completedAt: "2026-06-28T16:05:00.000Z",
+    },
+  );
 });
 
 test("done action is the only supported active escape hatch", () => {

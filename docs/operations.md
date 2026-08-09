@@ -25,6 +25,8 @@ stops repeat notifications for that occurrence without opening Workshop. Tap
 the duration-aware **Snooze** button to move that same reminder forward by its
 configured interval; it will
 notify again until you tap Done.
+Done always wins over an active snooze, including the automatic snooze applied
+after two minutes of no action.
 
 If neither action is taken, Pulse treats the reminder as snoozed after two
 minutes and schedules the next notification for that pulse's configured snooze
@@ -68,12 +70,12 @@ node bin/pulse-compose.mjs restart pulse
 ## Recover From Downtime
 
 Restart the runner. It will mark overdue scheduled occurrences due and resume
-the repeat notification policy. If a stale forced test starts notifying, mark it
+notification delivery. Failed delivery attempts retry after five minutes. If a stale forced test starts notifying, mark it
 Done or stop the runner while you inspect state.
 
 ## Duplicate Notifications
 
-If duplicate notifications appear inside the configured repeat interval:
+If duplicate delivery attempts appear inside five minutes:
 
 1. Check for multiple runner containers.
 2. Confirm only one host is writing the same `state.json`.

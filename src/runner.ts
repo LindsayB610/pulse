@@ -56,10 +56,10 @@ export type PulseRunnerTickResult = {
   notificationSequenceDeleteFailures: number;
 };
 
-const defaultRepeatEveryMinutes = 60;
 const defaultChannels = ["console"];
 const automaticSnoozeGraceMinutes = 2;
 const defaultSnoozeEveryMinutes = 30;
+const deliveryRetryMinutes = 5;
 const sequenceCleanupRetryMinutes = 5;
 
 export async function runPulseRunnerTick(input: PulseRunnerTickInput): Promise<PulseRunnerTickResult> {
@@ -135,7 +135,6 @@ async function runPulseRunnerTickExclusive(input: PulseRunnerTickInput): Promise
     }
 
     const channels = pulse.notificationPolicy?.channels ?? defaultChannels;
-    const repeatEveryMinutes = pulse.notificationPolicy?.repeatEveryMinutes ?? defaultRepeatEveryMinutes;
     const snoozeEveryMinutes = pulse.notificationPolicy?.snoozeEveryMinutes ?? defaultSnoozeEveryMinutes;
 
     if (!justBecameDue && shouldAutomaticallySnooze(state.events, occurrence, input.now)) {
@@ -158,7 +157,7 @@ async function runPulseRunnerTickExclusive(input: PulseRunnerTickInput): Promise
     }
 
     for (const channel of channels) {
-      if (!shouldSendNotification(state.events, occurrence, channel, input.now, repeatEveryMinutes)) {
+      if (!shouldSendNotification(state.events, occurrence, channel, input.now)) {
         continue;
       }
 
@@ -337,9 +336,8 @@ function shouldSendNotification(
   occurrence: PulseOccurrence,
   channel: string,
   now: Date,
-  repeatEveryMinutes: number,
 ): boolean {
-  const repeatMs = repeatEveryMinutes * 60 * 1000;
+  const retryMs = deliveryRetryMinutes * 60 * 1000;
   const dueCycleStartedAt = currentDueCycleStartedAt(events, occurrence);
   const lastSentAt = events
     .filter((event) => {
@@ -354,7 +352,7 @@ function shouldSendNotification(
     .filter(Number.isFinite)
     .sort((a, b) => b - a)[0];
 
-  return lastSentAt === undefined || now.getTime() - lastSentAt >= repeatMs;
+  return lastSentAt === undefined || now.getTime() - lastSentAt >= retryMs;
 }
 
 function currentDueCycleStartedAt(

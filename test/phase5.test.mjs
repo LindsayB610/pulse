@@ -164,7 +164,7 @@ test("notification action routes decode the occurrence ID before signature verif
   );
 });
 
-test("adapter failures are recorded and retried according to policy", async () => {
+test("adapter failures are recorded and retried after five minutes", async () => {
   const state = createEmptyPulseState();
   state.occurrences.push(occurrence);
   const store = createMemoryPulseStateStore(state);
@@ -184,13 +184,13 @@ test("adapter failures are recorded and retried according to policy", async () =
     notifier: adapter,
   });
   await runPulseRunnerTick({
-    now: new Date("2026-06-28T16:29:59.999Z"),
+    now: new Date("2026-06-28T16:04:59.999Z"),
     pulses: [pulse],
     stateStore: store,
     notifier: adapter,
   });
   await runPulseRunnerTick({
-    now: new Date("2026-06-28T16:30:00.000Z"),
+    now: new Date("2026-06-28T16:05:00.000Z"),
     pulses: [pulse],
     stateStore: store,
     notifier: adapter,

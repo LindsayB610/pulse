@@ -66,7 +66,7 @@ test("example pulse config is public-safe and includes a repeating weekly demo p
   assert.match(yaml, /id: weekly-demo-check/);
   assert.match(yaml, /type: weekly/);
   assert.match(yaml, /sunday/);
-  assert.match(yaml, /repeatEveryMinutes: 30/);
+  assert.match(yaml, /repeatEveryMinutes: 5/);
   assert.doesNotMatch(yaml, /Lucas|medication|shot|phone/i);
 });
 

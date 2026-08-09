@@ -14,4 +14,4 @@ pulses:
     notificationPolicy:
       channels:
         - console
-      repeatEveryMinutes: 2
+      repeatEveryMinutes: 5

@@ -14,13 +14,15 @@ keeps one reminder chain together without exposing the pulse name or schedule in
 the sequence ID. The title identifies the due pulse, and every live notification includes
 **Done** and a duration-aware **Snooze** Android action. Done acknowledges that exact
 occurrence, deletes that occurrence's ntfy sequence, and stops later repeats.
+Done also overrides an active manual or automatic snooze; the user never has to
+wait for the snooze timer to expire before completing the occurrence.
 It does not delete the saved Pulse definition, future recurring occurrences, or
 notifications from any other occurrence. Snooze moves the
 same occurrence forward by that pulse's configured duration; it remains active until Done. Neither
 action requires an Android phone. Pulse is where pulses are created,
 paused, resumed, and deleted. ntfy payloads use high priority and the `bell`
-tag. A failed send is recorded and retried by the normal occurrence repeat
-policy.
+tag. A failed send is recorded and retried automatically after five minutes.
+Delivery retry is a system reliability policy, not a per-reminder setting.
 
 Pulse records sequence cleanup separately from completion. If ntfy is
 temporarily unavailable, Done still succeeds and remains durable; the scheduled

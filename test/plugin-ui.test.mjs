@@ -104,14 +104,13 @@ test("mounted production Pulse UI renders a truthful management dashboard and cr
       setControlValue(dom.window.document.querySelector('[aria-label="Reminder name"]'), "Feed starter");
       setControlValue(dom.window.document.querySelector('[aria-label="Reminder day"]'), "wednesday");
       setControlValue(dom.window.document.querySelector('[aria-label="Reminder time"]'), "18:45");
-      setControlValue(dom.window.document.querySelector('[aria-label="Repeat notification minutes"]'), "45");
       setControlValue(dom.window.document.querySelector('[aria-label="Unanswered snooze minutes"]'), "1440");
     });
     await act(async () => { dom.window.document.querySelector("form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })); });
     assert.deepEqual(requests.find((entry) => entry.method === "POST"), {
       method: "POST",
       path: "/api/v1/pulses",
-      body: { id: "feed-starter", title: "Feed starter", active: true, schedule: { type: "weekly", daysOfWeek: ["wednesday"], time: "18:45", timezone: "America/Los_Angeles" }, notificationPolicy: { channels: ["ntfy"], repeatEveryMinutes: 45, snoozeEveryMinutes: 1440 } },
+      body: { id: "feed-starter", title: "Feed starter", active: true, schedule: { type: "weekly", daysOfWeek: ["wednesday"], time: "18:45", timezone: "America/Los_Angeles" }, notificationPolicy: { channels: ["ntfy"], repeatEveryMinutes: 5, snoozeEveryMinutes: 1440 } },
     });
   } finally {
     await mounted.close();
@@ -126,6 +125,8 @@ test("production Pulse UI exposes route-specific history and settings without cr
     assert.match(mounted.dom.window.document.body.textContent, /Completed after 1 snooze/);
     await mounted.render("settings");
     const text = mounted.dom.window.document.body.textContent;
+    const settingsLede = mounted.dom.window.document.querySelector("#pulse-settings-heading").closest("header").querySelector(".pulse-ui__lede");
+    assert.equal(settingsLede.classList.contains("pulse-ui__lede--wide"), true);
     assert.match(text, /Runner is online/);
     assert.match(text, /Private Pulse folder/);
     assert.match(text, /Android push through ntfy/);
@@ -177,6 +178,7 @@ test("production Pulse UI preserves full definitions while pausing, editing, and
     assert.deepEqual(requests.filter((entry) => entry.method === "PATCH")[1]?.body, {
       ...fixturePulses[0],
       schedule: { ...fixturePulses[0].schedule, time: "10:15" },
+      notificationPolicy: { ...fixturePulses[0].notificationPolicy, repeatEveryMinutes: 5 },
     });
 
     const updatedCard = [...dom.window.document.querySelectorAll("article")].find((article) => article.textContent.includes("Water houseplants"));

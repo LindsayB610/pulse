@@ -57,8 +57,8 @@ is an identifier, not an access-control mechanism.
   is never placed in a repository, analytics, or ordinary synced workspace
   state.
 - ntfy sends a high-priority `bell` notification whose title/body identify the
-  due obligation. Runner repeat policy retries while the occurrence is due;
-  Done ends the repeat loop.
+  due obligation. Failed delivery retries automatically after five minutes;
+  Done ends the active occurrence.
 
 ## Verification
 

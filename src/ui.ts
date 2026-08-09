@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 
 import {
   applyOccurrenceAction,
+  canCompleteOccurrence,
   createPulseEvent,
   type PulseDefinition,
 } from "./model.js";
@@ -76,8 +77,8 @@ export function createPulseUiServer(input: PulseUiServerInput): PulseUiServer {
           if (occurrence.state === "done") {
             return textResponse("Occurrence is already done.", 409, corsHeaders);
           }
-          if (occurrence.state !== "due") {
-            return textResponse("Occurrence is not due yet.", 409, corsHeaders);
+          if (!canCompleteOccurrence(occurrence)) {
+            return textResponse("Occurrence is not active yet.", 409, corsHeaders);
           }
 
           const action = {

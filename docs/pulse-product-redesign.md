@@ -184,9 +184,11 @@ new dependency.
 2. **Schedule**: initial build supports the existing weekly day + time model
    and displays timezone beside it.
 3. **Notification behavior**
-   - repeat while due: presets `30 min`, `1 hour`, `4 hours`, `1 day`, plus
-     Custom;
-   - if unanswered for two minutes: same preset pattern, default `30 min`.
+   - if unanswered for two minutes: presets `30 min`, `1 hour`, `4 hours`, `1
+     day`, plus Custom; default `30 min`.
+
+Failed delivery retries are fixed at five minutes and are not exposed as a
+reminder setting.
 
 The current raw minute fields remain valid data inputs, but must become the
 Custom path rather than the default mental model.

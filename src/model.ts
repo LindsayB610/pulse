@@ -23,6 +23,7 @@ export type PulseSchedule = WeeklyPulseSchedule;
 
 export type NotificationPolicy = {
   channels: string[];
+  /** Legacy serialized compatibility field. Delivery retry is system-owned at five minutes. */
   repeatEveryMinutes: number;
   /** How long an unattended or Android-snoozed occurrence waits before it is due again. */
   snoozeEveryMinutes?: number;
@@ -202,12 +203,13 @@ export function completeOccurrence(
   occurrence: PulseOccurrence,
   input: { completedAt: Date; completionNote?: string },
 ): PulseOccurrence {
-  if (occurrence.state !== "due") {
-    throw new Error("Only due occurrences can be completed.");
+  if (!canCompleteOccurrence(occurrence)) {
+    throw new Error("Only due or snoozed occurrences can be completed.");
   }
 
+  const { snoozedAt: _snoozedAt, snoozeCount: _snoozeCount, ...activeOccurrence } = occurrence;
   const completed: PulseOccurrence = {
-    ...occurrence,
+    ...activeOccurrence,
     state: "done",
     completedAt: input.completedAt.toISOString(),
   };
@@ -217,6 +219,16 @@ export function completeOccurrence(
   }
 
   return completed;
+}
+
+/** A snoozed occurrence is still active work. Done may close it immediately,
+ * while an ordinary future occurrence remains protected from early completion. */
+export function canCompleteOccurrence(occurrence: PulseOccurrence): boolean {
+  return occurrence.state === "due" || (
+    occurrence.state === "scheduled" &&
+    occurrence.snoozedAt !== undefined &&
+    (occurrence.snoozeCount ?? 0) > 0
+  );
 }
 
 export function applyOccurrenceAction(

@@ -103,28 +103,26 @@ test("Netlify functions use authenticated Blob-backed definitions and preserve c
     assert.equal(snoozedOccurrence.snoozeCount, 1);
     assert.equal(Date.parse(snoozedOccurrence.dueAt) - Date.parse(snoozedOccurrence.snoozedAt), 1440 * 60_000);
 
-    await runScheduledPulseTick(new Date(snoozedOccurrence.dueAt));
-    assert.equal(deliveries[1]?.url, deliveries[0]?.url, "the snooze delivery updates the original sequence");
     const completed = await doneNotificationHandler(new Request(doneUrl, { method: "POST" }), { params: { id: encodeURIComponent(due.id) } } as never);
-    assert.equal(completed.status, 200);
+    assert.equal(completed.status, 200, "Done must override the active snooze instead of returning a red X");
     const completedBody = await completed.json();
     assert.equal(completedBody.occurrence.state, "done");
     assert.equal(completedBody.notificationCleanup, "pending");
-    assert.deepEqual(deliveries[2], { url: deliveries[0]?.url, method: "DELETE", actions: "", authorization: "Bearer test-notification-token" });
+    assert.deepEqual(deliveries[1], { url: deliveries[0]?.url, method: "DELETE", actions: "", authorization: "Bearer test-notification-token" });
 
     const afterFailedCleanup = await readPulseSnapshot();
     assert.equal(afterFailedCleanup.state.occurrences.find((occurrence: { id: string }) => occurrence.id === due.id)?.state, "done", "cleanup failure must never roll back completion");
     const failedCleanup = [...afterFailedCleanup.state.events].reverse().find((event: { type: string }) => event.type === "notification_sequence_cleanup");
     assert.equal(failedCleanup?.metadata?.ok, false);
     await runScheduledPulseTick(new Date(Date.parse(failedCleanup.at) + 5 * 60_000));
-    assert.deepEqual(deliveries[3], { url: deliveries[0]?.url, method: "DELETE", actions: "", authorization: "Bearer test-notification-token" });
+    assert.deepEqual(deliveries[2], { url: deliveries[0]?.url, method: "DELETE", actions: "", authorization: "Bearer test-notification-token" });
     const afterCleanupRetry = await readPulseSnapshot();
     assert.equal(afterCleanupRetry.state.events.some((event: { type: string; metadata?: { ok?: boolean } }) => event.type === "notification_sequence_cleanup" && event.metadata?.ok === true), true);
 
     const repeatedDone = await doneNotificationHandler(new Request(doneUrl, { method: "POST" }), { params: { id: encodeURIComponent(due.id) } } as never);
     assert.equal(repeatedDone.status, 200);
     assert.equal((await repeatedDone.json()).alreadyDone, true);
-    assert.equal(deliveries.length, 4, "idempotent Done does not emit a second sequence deletion");
+    assert.equal(deliveries.length, 3, "idempotent Done does not emit a second sequence deletion");
 
     assert.equal(pulsesConfig.path, "/api/v1/pulses");
     assert.equal(snapshotConfig.path, "/api/v1/snapshot");

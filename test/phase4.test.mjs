@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import {
+  applyOccurrenceAction,
   createEmptyPulseState,
   createMemoryPulseStateStore,
   createPollingRunner,
@@ -112,6 +113,13 @@ test("runner automatically snoozes an unanswered notification after two minutes 
   assert.equal(automaticallySnoozed.dueAt, "2026-06-28T16:32:00.000Z");
   assert.equal(automaticallySnoozed.snoozeCount, 1);
   assert.equal(store.read().events.at(-1)?.metadata?.source, "automatic-no-action");
+
+  const completedDuringAutomaticSnooze = applyOccurrenceAction(automaticallySnoozed, {
+    type: "done",
+    at: new Date("2026-06-28T16:05:00.000Z"),
+  });
+  assert.equal(completedDuringAutomaticSnooze.state, "done");
+  assert.equal(completedDuringAutomaticSnooze.completedAt, "2026-06-28T16:05:00.000Z");
 
   await runPulseRunnerTick({
     now: new Date("2026-06-28T16:32:00.000Z"),
@@ -227,7 +235,7 @@ test("runner stops notifications after Done", async () => {
   assert.equal(notifier.sends.length, 0);
 });
 
-test("runner does not double-send inside the repeat interval", async () => {
+test("runner retries a failed delivery after a fixed five minutes", async () => {
   const state = createEmptyPulseState();
   state.occurrences.push({
     id: "weekly-demo-check:2026-06-28T16:00:00.000Z",
@@ -241,20 +249,30 @@ test("runner does not double-send inside the repeat interval", async () => {
     occurrenceId: "weekly-demo-check:2026-06-28T16:00:00.000Z",
     type: "notification_sent",
     at: "2026-06-28T16:00:00.000Z",
-    metadata: { channel: "console" },
+    metadata: { channel: "console", ok: false },
   });
   const store = createMemoryPulseStateStore(state);
   const notifier = createFakeNotifier();
 
   await runPulseRunnerTick({
-    now: new Date("2026-06-28T16:29:59.999Z"),
-    pulses: [weeklyPulse],
+    now: new Date("2026-06-28T16:04:59.999Z"),
+    pulses: [{ ...weeklyPulse, notificationPolicy: { ...weeklyPulse.notificationPolicy, repeatEveryMinutes: 1440 } }],
     stateStore: store,
     notifier,
   });
 
   assert.equal(notifier.sends.length, 0);
   assert.equal(store.read().events.filter((event) => event.type === "notification_sent").length, 1);
+
+  await runPulseRunnerTick({
+    now: new Date("2026-06-28T16:05:00.000Z"),
+    pulses: [{ ...weeklyPulse, notificationPolicy: { ...weeklyPulse.notificationPolicy, repeatEveryMinutes: 1440 } }],
+    stateStore: store,
+    notifier,
+  });
+
+  assert.equal(notifier.sends.length, 1, "per-pulse values must not delay the system delivery retry");
+  assert.equal(store.read().events.filter((event) => event.type === "notification_sent").length, 2);
 });
 
 test("runner catches overdue scheduled occurrences after downtime", async () => {

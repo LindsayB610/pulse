@@ -123,6 +123,39 @@ test("phase 7 Done action records completion, moves occurrence to history, and s
 
 });
 
+test("phase 7 Done action overrides an active snooze but not an untouched future occurrence", async () => {
+  const fixture = createUiFixture();
+  fixture.occurrences[0] = {
+    ...fixture.occurrences[0],
+    state: "scheduled",
+    dueAt: "2026-06-28T17:00:00.000Z",
+    snoozedAt: "2026-06-28T16:30:00.000Z",
+    snoozeCount: 1,
+  };
+  const stateStore = createMemoryPulseStateStore(fixture);
+  const ui = createPulseUiServer({
+    pulses,
+    stateStore,
+    now: () => now,
+    apiToken: "workshop-private-token",
+  });
+  const doneRequest = (id) => new Request(
+    `http://pulse.local/api/v1/occurrences/${encodeURIComponent(id)}/done`,
+    { method: "POST", headers: { authorization: "Bearer workshop-private-token" } },
+  );
+
+  const completedResponse = await ui.handle(doneRequest(fixture.occurrences[0].id));
+  assert.equal(completedResponse.status, 200);
+  const completed = (await completedResponse.json()).occurrence;
+  assert.equal(completed.state, "done");
+  assert.equal(completed.snoozedAt, undefined);
+  assert.equal(completed.snoozeCount, undefined);
+
+  const futureResponse = await ui.handle(doneRequest(fixture.occurrences[1].id));
+  assert.equal(futureResponse.status, 409);
+  assert.match(await futureResponse.text(), /not active yet/i);
+});
+
 test("phase 7 Done action handles stale completion attempts without a server error", async () => {
   const stateStore = createMemoryPulseStateStore(createUiFixture());
   const ui = createPulseUiServer({

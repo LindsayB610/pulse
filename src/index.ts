@@ -20,6 +20,7 @@ export {
 } from "./adapters.js";
 export {
   applyOccurrenceAction,
+  canCompleteOccurrence,
   completeOccurrence,
   createPulseEvent,
   generateNextOccurrence,
