@@ -243,10 +243,10 @@ Workshop’s internal component tree.
 - Evidence: approved screenshot set, token sheet, component inventory, and
   recorded design decisions. No production code is accepted in this phase.
 
-**Current state:** implemented and ready for product approval. The interactive
-prototype, direction rationale, component inventory, and desktop/narrow
-evidence are in [design/README.md](../design/README.md). Production promotion
-remains gated on review of the selected Quiet Focus direction.
+**Current state:** approved and promoted. The interactive prototype, direction
+rationale, component inventory, and desktop/narrow evidence remain in
+[design/README.md](../design/README.md); the shipped implementation lives in
+`plugin/src` and uses the selected Quiet Focus direction.
 
 ### P0 — Truthful data and route contract
 
@@ -291,6 +291,22 @@ remains gated on review of the selected Quiet Focus direction.
   create, understand next fire, edit, pause/resume, then verify phone delivery.
 - Audit keyboard navigation, focus visibility, contrast, text zoom, and
   empty/error states.
+
+## Production implementation status
+
+The production plugin now implements the approved connected dashboard,
+disconnected setup, create/edit flow, timing presets with custom values,
+pause/resume, named delete confirmation, completion history, runner-health
+states, settings, and Pulse-owned route navigation. The private folder path is
+remembered locally so Workshop releases can reconnect without hardcoding a
+personal path; credentials remain in the Keychain-backed host capability.
+
+Mounted production tests cover management request payloads, full-definition
+preservation, non-success API responses, private setup and restoration, route
+selection, healthy and stale runner states, history, delete confirmation,
+credential absence, and automated accessibility. The clean-consumer regression
+still installs the package from a Git revision and runs the root `prepare`
+build without `plugin/node_modules`.
 
 ## Release gates
 

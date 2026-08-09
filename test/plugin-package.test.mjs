@@ -16,8 +16,12 @@ test("Pulse owns an external planned Workshop plugin without Workshop source imp
   assert.match(source, /status: "ready"/);
   assert.match(source, /request_configured_secure_service/);
   assert.match(source, /Pulse connection/);
-  assert.match(source, /Connect a private Pulse folder to view or create reminders/);
-  assert.match(source, /useEffect\(\(\) => \{ void refresh\(\); \}, \[request\]\)/);
+  assert.match(source, /Connect your reminders/);
+  assert.match(source, /Credentials stay in the macOS Keychain and never enter this view/);
+  assert.match(source, /Keep the important things moving/);
+  assert.match(source, /Completion history/);
+  assert.match(source, /Android push through ntfy/);
+  assert.match(source, /useEffect\(\(\) => \{ void refresh\(\); \}, \[refresh\]\)/);
   assert.doesNotMatch(source, /workshop\/|\.\.\/workshop|@workshop/);
   assert.match(service, /pulsePath\("\/api\/v1\/snapshot"\)/);
   assert.doesNotMatch(service, /authorization|token|fetch\(/i);
@@ -38,6 +42,11 @@ test("built plugin validates private metadata and never puts credentials in serv
   assert.deepEqual(requests[0], { method: "POST", path: "/api/v1/pulses", body: { id: "weekly-reminder", title: "Weekly reminder", active: true, schedule: { type: "weekly", daysOfWeek: ["sunday"], time: "09:30", timezone: "America/Los_Angeles" }, notificationPolicy: { channels: ["ntfy"], repeatEveryMinutes: 60, snoozeEveryMinutes: 30 } } });
   assert.equal(workshopPluginDeclaration.status, "ready");
   assert.deepEqual(requests.slice(1).map((request) => [request.method, request.path]), [["GET", "/api/v1/snapshot"], ["PATCH", "/api/v1/pulses/weekly%2Freminder"], ["DELETE", "/api/v1/pulses/weekly%2Freminder"]]);
+});
+
+test("service operations reject non-success responses instead of reporting false saves", async () => {
+  const service = createPulseService(async () => ({ status: 409, body: { error: "A reminder with that id already exists." } }));
+  await assert.rejects(service.create({ id: "duplicate" }), /already exists/);
 });
 
 test("plugin uses both generic host commands with the fixed Pulse config file", async () => {

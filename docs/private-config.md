@@ -85,7 +85,10 @@ Workshop host adds it to API requests and keeps it out of Pulse's UI.
 In Workshop, open Pulse, enter the absolute private folder path, and click
 **Connect Pulse**. Pulse loads existing reminders automatically and lets you
 create or manage them from that same view. The private folder is selected once
-per Workshop installation; it does not belong in the public Pulse repository.
+per Workshop installation; Pulse remembers only that local path so it can
+reconnect after an app update. The API credential remains in the macOS Keychain
+and never enters Pulse's webview or local storage. The folder path does not
+belong in the public Pulse repository.
 
 ## Private Pulse Config
 

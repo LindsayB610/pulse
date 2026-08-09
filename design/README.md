@@ -99,10 +99,9 @@ rather than copy the prototype's string templates.
   reinforcement.
 - The prototype uses public fixture obligations only.
 
-## Production promotion gate
+## Production promotion
 
-Do not wire this prototype directly to the secure service. First approve the
-selected screenshots and flow. Production implementation then begins with
-typed snapshot/view-model tests, followed by route components, management
-actions, and browser workflow/visual regression tests as specified in
-`docs/pulse-product-redesign.md`.
+Quiet Focus has been promoted into the exported React plugin in `plugin/src`.
+This prototype remains a public-safe comparison and state catalog; it is not
+loaded by Workshop and has no private-service access. Production behavior and
+its test gates are tracked in `docs/pulse-product-redesign.md`.
