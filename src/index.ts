@@ -30,7 +30,7 @@ export {
   markOccurrenceDue,
   parsePulseDefinitions,
 } from "./model.js";
-export { createPollingRunner, redactNotificationDetail, runPulseRunnerTick } from "./runner.js";
+export { createPollingRunner, reconcileUntouchedFutureOccurrences, redactNotificationDetail, runPulseRunnerTick } from "./runner.js";
 export { readPulseRunnerHealth, writePulseRunnerHeartbeat } from "./health.js";
 export { validatePulseReleaseReadiness } from "./release.js";
 export {

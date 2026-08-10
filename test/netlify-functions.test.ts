@@ -6,7 +6,7 @@ import snapshotHandler, { config as snapshotConfig } from "../netlify/functions/
 import pulseHandler, { config as pulseConfig } from "../netlify/functions/pulse-pulse.ts";
 import doneNotificationHandler from "../netlify/functions/pulse-notification-done.ts";
 import snoozeNotificationHandler from "../netlify/functions/pulse-notification-snooze.ts";
-import { readPulseSnapshot, runScheduledPulseTick, setPulseBlobStoreForTest, type PulseBlobStore } from "../netlify/functions/_shared/pulse.ts";
+import { readPulseSnapshot, runScheduledPulseTick, setPulseBlobStoreForTest, updatePulseDefinition, type PulseBlobStore } from "../netlify/functions/_shared/pulse.ts";
 
 class MemoryBlobStore implements PulseBlobStore {
   private entries = new Map<string, { data: unknown; etag: string }>();
@@ -118,6 +118,16 @@ test("Netlify functions use authenticated Blob-backed definitions and preserve c
     assert.deepEqual(deliveries[2], { url: deliveries[0]?.url, method: "DELETE", actions: "", authorization: "Bearer test-notification-token" });
     const afterCleanupRetry = await readPulseSnapshot();
     assert.equal(afterCleanupRetry.state.events.some((event: { type: string; metadata?: { ok?: boolean } }) => event.type === "notification_sequence_cleanup" && event.metadata?.ok === true), true);
+
+    const beforeScheduleEdit = afterCleanupRetry.state.occurrences.find((occurrence: { pulseId: string; state: string }) => occurrence.pulseId === "second" && occurrence.state === "scheduled");
+    assert.equal(beforeScheduleEdit?.dueAt, "2026-08-16T16:30:00.000Z");
+    await updatePulseDefinition("second", {
+      ...basePulse("second", 1440),
+      schedule: { type: "weekly", daysOfWeek: ["sunday"], time: "08:50", timezone: "America/Los_Angeles" },
+    }, new Date("2026-08-09T20:00:00.000Z"));
+    const afterScheduleEdit = await readPulseSnapshot();
+    const rescheduled = afterScheduleEdit.state.occurrences.find((occurrence: { pulseId: string; state: string }) => occurrence.pulseId === "second" && occurrence.state === "scheduled");
+    assert.equal(rescheduled?.dueAt, "2026-08-16T15:50:00.000Z", "saving a new time must update the next notification immediately");
 
     const repeatedDone = await doneNotificationHandler(new Request(doneUrl, { method: "POST" }), { params: { id: encodeURIComponent(due.id) } } as never);
     assert.equal(repeatedDone.status, 200);

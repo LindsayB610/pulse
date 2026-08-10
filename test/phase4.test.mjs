@@ -349,6 +349,54 @@ test("runner keeps exactly one open occurrence for a recurring pulse", async () 
   assert.equal(store.read().occurrences.filter((occurrence) => occurrence.state !== "done").length, 1);
 });
 
+test("runner reconciles an untouched future occurrence after its weekly schedule changes", async () => {
+  const state = createEmptyPulseState();
+  state.occurrences.push({
+    id: "weekly-demo-check:2026-08-16T16:50:00.000Z",
+    pulseId: "weekly-demo-check",
+    dueAt: "2026-08-16T16:50:00.000Z",
+    state: "scheduled",
+  });
+  const store = createMemoryPulseStateStore(state);
+
+  await runPulseRunnerTick({
+    now: new Date("2026-08-09T23:00:00.000Z"),
+    pulses: [weeklyPulse],
+    stateStore: store,
+    notifier: createFakeNotifier(),
+  });
+
+  const restored = store.read();
+  assert.equal(restored.occurrences[0].id, "weekly-demo-check:2026-08-16T16:00:00.000Z");
+  assert.equal(restored.occurrences[0].dueAt, "2026-08-16T16:00:00.000Z");
+  assert.equal(restored.events.at(-1)?.type, "occurrence_scheduled");
+  assert.equal(restored.events.at(-1)?.metadata?.rescheduledFrom, "2026-08-16T16:50:00.000Z");
+});
+
+test("runner preserves a snoozed future occurrence when its definition changes", async () => {
+  const snoozed = {
+    id: "weekly-demo-check:2026-08-16T16:50:00.000Z",
+    pulseId: "weekly-demo-check",
+    dueAt: "2026-08-16T16:50:00.000Z",
+    state: "scheduled",
+    snoozedAt: "2026-08-09T23:00:00.000Z",
+    snoozeCount: 1,
+  };
+  const state = createEmptyPulseState();
+  state.occurrences.push(snoozed);
+  const store = createMemoryPulseStateStore(state);
+
+  await runPulseRunnerTick({
+    now: new Date("2026-08-09T23:01:00.000Z"),
+    pulses: [weeklyPulse],
+    stateStore: store,
+    notifier: createFakeNotifier(),
+  });
+
+  assert.deepEqual(store.read().occurrences[0], snoozed);
+  assert.equal(store.read().events.length, 0);
+});
+
 test("runner self-heals stale future open occurrences by retaining the earliest", async () => {
   const state = createEmptyPulseState();
   state.occurrences.push(

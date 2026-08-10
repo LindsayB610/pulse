@@ -77,6 +77,7 @@ async function runPulseRunnerTickExclusive(input: PulseRunnerTickInput): Promise
   };
 
   retainEarliestOpenOccurrencePerPulse(state, input.pulses);
+  reconcileUntouchedFutureOccurrences(state, input.pulses, input.now);
   await cleanupCompletedNotificationSequences(input, state, result);
 
   for (const pulse of input.pulses) {
@@ -282,6 +283,60 @@ function earliestOpenOccurrenceId(state: PulseState, pulseId: string): string | 
   return state.occurrences
     .filter((occurrence) => occurrence.pulseId === pulseId && occurrence.state !== "done")
     .sort((left, right) => Date.parse(left.dueAt) - Date.parse(right.dueAt))[0]?.id;
+}
+
+/** Keep persisted future state aligned with edited definitions without moving
+ * an occurrence that is already due or has been snoozed by the user/runner. */
+export function reconcileUntouchedFutureOccurrences(
+  state: PulseState,
+  pulses: PulseDefinition[],
+  now: Date,
+): number {
+  const definitions = new Map(pulses.map((pulse) => [pulse.id, pulse]));
+  let reconciled = 0;
+
+  for (let index = 0; index < state.occurrences.length; index += 1) {
+    const occurrence = state.occurrences[index];
+    if (
+      occurrence === undefined ||
+      occurrence.state !== "scheduled" ||
+      occurrence.snoozedAt !== undefined ||
+      occurrence.snoozeCount !== undefined ||
+      Date.parse(occurrence.dueAt) <= now.getTime()
+    ) {
+      continue;
+    }
+    const pulse = definitions.get(occurrence.pulseId);
+    if (pulse === undefined) continue;
+
+    const replacement = generateNextOccurrence(pulse, {
+      after: now,
+      existingOccurrences: state.occurrences.filter((candidate) => candidate.id !== occurrence.id),
+    });
+    if (replacement === null) {
+      state.occurrences.splice(index, 1);
+      index -= 1;
+      reconciled += 1;
+      continue;
+    }
+    if (replacement.id === occurrence.id) continue;
+
+    state.occurrences[index] = replacement;
+    state.events.push(createPulseEvent({
+      pulseId: pulse.id,
+      occurrenceId: replacement.id,
+      type: "occurrence_scheduled",
+      at: now,
+      metadata: {
+        dueAt: replacement.dueAt,
+        rescheduledFrom: occurrence.dueAt,
+        source: "definition-reconciled",
+      },
+    }));
+    reconciled += 1;
+  }
+
+  return reconciled;
 }
 
 export function createPollingRunner(input: PulsePollingRunnerInput) {

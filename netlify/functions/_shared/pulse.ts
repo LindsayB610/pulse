@@ -3,7 +3,7 @@ import { getStore } from "@netlify/blobs";
 import { createNotificationDispatcherFromEnv } from "../../../src/adapters.js";
 import { loadPulseDefinitionsFromYaml, parsePulseDefinitions, applyOccurrenceAction, canCompleteOccurrence, createPulseEvent, type PulseDefinition } from "../../../src/model.js";
 import { isPulseNtfySequenceId } from "../../../src/ntfy-sequence.js";
-import { runPulseRunnerTick } from "../../../src/runner.js";
+import { reconcileUntouchedFutureOccurrences, runPulseRunnerTick } from "../../../src/runner.js";
 import { createEmptyPulseState, createMemoryPulseStateStore, type PulseState } from "../../../src/storage.js";
 
 const stateKey = "state.json";
@@ -80,7 +80,7 @@ export async function createPulseDefinition(input: unknown): Promise<PulseDefini
   });
 }
 
-export async function updatePulseDefinition(id: string, input: unknown): Promise<PulseDefinition> {
+export async function updatePulseDefinition(id: string, input: unknown, now: Date = new Date()): Promise<PulseDefinition> {
   const [pulse] = parsePulseDefinitions([input]);
   if (pulse.id !== id) throw new PulseHttpError(400, "A pulse id cannot be changed.");
   return withPulseLock(async () => {
@@ -89,6 +89,11 @@ export async function updatePulseDefinition(id: string, input: unknown): Promise
     if (index === -1) throw new PulseHttpError(404, "Pulse not found.");
     pulses[index] = pulse;
     await store().setJSON(definitionsKey, pulses, { onlyIfNew: false });
+    await withState((stateStore) => {
+      const state = stateStore.read();
+      reconcileUntouchedFutureOccurrences(state, [pulse], now);
+      stateStore.write(state);
+    });
     return pulse;
   });
 }
