@@ -10,6 +10,10 @@ const source = readFileSync("plugin/src/index.tsx", "utf8");
 const service = readFileSync("plugin/src/service.ts", "utf8");
 const definition = readFileSync("plugin/src/definition.ts", "utf8");
 const styles = readFileSync("plugin/src/styles.tsx", "utf8");
+const rootPackage = readFileSync("package.json", "utf8");
+const pluginPackage = readFileSync("plugin/package.json", "utf8");
+const rootLock = readFileSync("package-lock.json", "utf8");
+const pluginLock = readFileSync("plugin/package-lock.json", "utf8");
 test("Pulse owns an external planned Workshop plugin without Workshop source imports", () => {
   assert.match(source, /export const workshopPluginDeclaration/);
   assert.match(source, /export function WorkshopToolView/);
@@ -28,6 +32,9 @@ test("Pulse owns an external planned Workshop plugin without Workshop source imp
   assert.match(styles, /\.pulse-ui__lede--wide \{ max-width: 780px; \}/);
   assert.match(source, /useEffect\(\(\) => \{ void refresh\(\); \}, \[refresh\]\)/);
   assert.doesNotMatch(source, /workshop\/|\.\.\/workshop|@workshop/);
+  for (const manifest of [rootPackage, pluginPackage, rootLock, pluginLock]) {
+    assert.doesNotMatch(manifest, /(?:file:|link:|workspace:).*workshop|@workshop\//i);
+  }
   assert.match(service, /pulsePath\("\/api\/v1\/snapshot"\)/);
   assert.doesNotMatch(service, /authorization|token|fetch\(/i);
   assert.match(definition, /Enter a reminder name/);
@@ -80,11 +87,17 @@ test("public UI fixture provides active, paused, and occurrence-state coverage w
 
 test("public setup docs explain the generic Workshop connection without publishing a credential", () => {
   const guide = readFileSync("docs/private-config.md", "utf8");
+  const integration = readFileSync("docs/workshop-secure-service-capability.md", "utf8");
   assert.match(guide, /pulse\.config\.json/);
   assert.match(guide, /credentialRef/);
   assert.match(guide, /Keychain/);
   assert.match(guide, /Connect Pulse/);
   assert.doesNotMatch(guide, /PULSE_API_TOKEN=[^\n]+/);
+  assert.match(integration, /progressive enhancement/i);
+  assert.match(integration, /--workshop-canvas/);
+  assert.match(integration, /standalone fallback/i);
+  assert.match(integration, /changes Pulse\s+immediately/i);
+  assert.doesNotMatch(integration, /data-theme|palette(?:Id|-id)|preset(?:Id|-id)/);
 });
 
 test("a clean consumer can install the Git package and run the plugin prepare build", () => {
@@ -118,6 +131,7 @@ test("a clean consumer can install the Git package and run the plugin prepare bu
     writeFileSync(join(consumer, "package.json"), '{"private":true}\n');
     execFileSync("npm", ["install", `git+file://${source}`], {
       cwd: consumer,
+      env: { ...process.env, npm_config_cache: join(temp, "npm-cache") },
       stdio: "pipe",
       timeout: 120_000,
     });

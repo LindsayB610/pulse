@@ -28,6 +28,7 @@ weekly-reminder model:
 - public example configs
 - private config guardrails
 - Pulse-owned plugin UI using Workshop's generic secure-service capability
+- optional semantic host-theme inheritance with exact standalone color fallbacks
 - release hardening with backup, restore, migration, import validation, and
   release checklist gates
 

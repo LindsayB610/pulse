@@ -23,6 +23,35 @@ first reads the metadata, then constructs its requester from the configured
 service command. It retains no bearer token, authorization header, or secret in
 the webview.
 
+## Appearance inheritance
+
+Pulse treats the host appearance contract as a progressive enhancement, not a
+runtime dependency. Every production plugin rule remains below `.pulse-ui`, and
+its semantic aliases read optional `--workshop-*` custom properties with the
+exact previous Pulse color as the standalone fallback. For example:
+
+```css
+.pulse-ui {
+  --pulse-canvas: var(--workshop-canvas, #000000);
+  --pulse-surface: var(--workshop-surface, rgba(255,255,255,.045));
+  --pulse-text: var(--workshop-text, #f7f7f8);
+  --pulse-accent: var(--workshop-accent, #ff2f92);
+}
+```
+
+The scoped aliases cover canvas, surfaces, raised surfaces, borders, primary
+and muted text, accents, focus, success, warning, and danger. Pulse uses them
+for panels, controls, selected tabs, inputs, modals, notices, and status and
+history states. It has no genuine gradient treatment, so it does not consume
+the optional host gradient properties.
+
+Because inheritance is pure CSS, changing the host properties changes Pulse
+immediately. Pulse does not read or store an appearance preference, recognize
+host theme names, serialize token values, or require any host JavaScript,
+source import, or package dependency. Without the host properties, the
+standalone fallback remains visually coherent and matches Pulse's prior color
+values.
+
 ## Validation and limits
 
 - selected root must be absolute, regular, and outside public repositories;
@@ -52,4 +81,7 @@ the webview.
 - A mounted component test creates a configured reminder through the generic
   requester and proves the rendered management view contains no token,
   authorization, Snooze, or Dismiss control.
+- Theme contract tests prove every optional host property has a fallback, every
+  production selector remains scoped, and a representative inherited palette
+  keeps controls, tabs, inputs, modals, and status messages readable.
 - Workshop independently typechecks and tests the native host commands.

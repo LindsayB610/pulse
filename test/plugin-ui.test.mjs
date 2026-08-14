@@ -40,9 +40,10 @@ const fixtureSnapshot = {
 
 function installDom() {
   const dom = new JSDOM("<!doctype html><html lang='en'><title>Pulse</title><body><div id=app></div></body></html>", { pretendToBeVisual: true, runScripts: "outside-only", url: "http://pulse.test" });
-  const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT };
+  const previous = { window: globalThis.window, document: globalThis.document, customEvent: globalThis.CustomEvent, act: globalThis.IS_REACT_ACT_ENVIRONMENT };
   globalThis.window = dom.window;
   globalThis.document = dom.window.document;
+  globalThis.CustomEvent = dom.window.CustomEvent;
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   return { dom, previous };
 }
@@ -80,6 +81,7 @@ async function mountedPulse(snapshot = fixtureSnapshot, onRouteChange, respond, 
     dom.window.close();
     globalThis.window = previous.window;
     globalThis.document = previous.document;
+    globalThis.CustomEvent = previous.customEvent;
     globalThis.IS_REACT_ACT_ENVIRONMENT = previous.act;
   };
   return { act, close, dom, render, requests };
@@ -259,6 +261,7 @@ test("production connection screen explains the private boundary and submits the
     dom.window.close();
     globalThis.window = previous.window;
     globalThis.document = previous.document;
+    globalThis.CustomEvent = previous.customEvent;
     globalThis.IS_REACT_ACT_ENVIRONMENT = previous.act;
   }
 });
@@ -281,6 +284,7 @@ test("production connection restores the Pulse-owned private folder without hard
     dom.window.close();
     globalThis.window = previous.window;
     globalThis.document = previous.document;
+    globalThis.CustomEvent = previous.customEvent;
     globalThis.IS_REACT_ACT_ENVIRONMENT = previous.act;
   }
 });
@@ -330,6 +334,7 @@ test("WorkshopToolView changes a connected folder by value without invoking an u
     dom.window.close();
     globalThis.window = previous.window;
     globalThis.document = previous.document;
+    globalThis.CustomEvent = previous.customEvent;
     globalThis.IS_REACT_ACT_ENVIRONMENT = previous.act;
   }
 });
@@ -373,5 +378,89 @@ test("production dashboard, editor, and folder settings have no automated access
     assert.deepEqual(Array.from(result.violations, (violation) => violation.id), []);
   } finally {
     await mounted.close();
+  }
+});
+
+test("a representative inherited palette renders every color-sensitive production surface", async () => {
+  const { dom, previous } = installDom();
+  const React = await import("react");
+  const { act } = React;
+  const { createRoot } = await import("react-dom/client");
+  const { WorkshopToolView } = await import("../plugin/dist/index.js");
+  const hostTokens = {
+    "--workshop-canvas": "#071116",
+    "--workshop-surface": "#0d1d24",
+    "--workshop-surface-raised": "#1e2d33",
+    "--workshop-border": "#5f6a70",
+    "--workshop-text": "#ffffff",
+    "--workshop-text-muted": "#b7b7bd",
+    "--workshop-accent": "#2bb7e8",
+    "--workshop-accent-strong": "#60c8eb",
+    "--workshop-accent-warm": "#62e6bd",
+    "--workshop-focus-ring": "#62e6bd",
+    "--workshop-success": "#56d68b",
+    "--workshop-warning": "#ffd34d",
+    "--workshop-danger": "#ff5a79",
+  };
+  for (const [name, value] of Object.entries(hostTokens)) dom.window.document.documentElement.style.setProperty(name, value);
+  dom.window.__TAURI_INTERNALS__ = {
+    invoke: async (command) => {
+      if (command === "read_secure_service_metadata") return { endpoint: "https://pulse.example" };
+      if (command === "request_configured_secure_service") return { status: 200, body: fixtureSnapshot };
+      throw new Error(`Unexpected host command: ${command}`);
+    },
+  };
+  const root = createRoot(dom.window.document.getElementById("app"));
+  try {
+    await act(async () => {
+      root.render(React.createElement(WorkshopToolView, {
+        activeRouteId: "reminders",
+        workspaceRoot: "/private/pulse",
+        requestWorkspaceRoot: () => {},
+      }));
+    });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+
+    const pulseRoot = dom.window.document.querySelector(".pulse-ui");
+    const style = pulseRoot.querySelector("style").textContent;
+    assert.match(style, /--pulse-accent: var\(--workshop-accent, #ff2f92\)/);
+    assert.ok(pulseRoot.querySelector(".pulse-ui__tab[aria-current='page']"));
+    assert.ok(pulseRoot.querySelector(".pulse-ui__button--primary"));
+    assert.ok(pulseRoot.querySelector(".pulse-ui__status-dot"));
+
+    await act(async () => {
+      [...pulseRoot.querySelectorAll("button")].find((button) => button.textContent.includes("New reminder")).click();
+    });
+    assert.ok(pulseRoot.querySelector(".pulse-ui__field input"));
+    assert.ok(pulseRoot.querySelector(".pulse-ui__preset[aria-pressed='true']"));
+    await act(async () => {
+      [...pulseRoot.querySelectorAll("button")].find((button) => button.textContent === "Cancel").click();
+    });
+
+    const reminder = [...pulseRoot.querySelectorAll("article")].find((article) => article.textContent.includes("Water houseplants"));
+    await act(async () => { [...reminder.querySelectorAll("button")].find((button) => button.textContent === "Edit").click(); });
+    await act(async () => { pulseRoot.querySelector("[data-action='delete-reminder']").click(); });
+    assert.ok(pulseRoot.querySelector(".pulse-ui__modal[role='dialog']"));
+    assert.ok(pulseRoot.querySelector(".pulse-ui__modal .pulse-ui__button--danger"));
+    await act(async () => {
+      [...pulseRoot.querySelectorAll("button")].find((button) => button.textContent === "Keep reminder").click();
+    });
+
+    await act(async () => { [...pulseRoot.querySelectorAll("button")].find((button) => button.textContent === "History").click(); });
+    assert.ok(pulseRoot.querySelector(".pulse-ui__history-icon"));
+    await act(async () => { [...pulseRoot.querySelectorAll("button")].find((button) => button.textContent === "Settings").click(); });
+    assert.ok(pulseRoot.querySelector(".pulse-ui__setting"));
+
+    const sameRoot = pulseRoot;
+    dom.window.document.documentElement.style.setProperty("--workshop-accent", "#ca78f2");
+    assert.equal(dom.window.document.querySelector(".pulse-ui"), sameRoot, "palette changes do not remount or reconfigure Pulse");
+    assert.equal(dom.window.document.documentElement.style.getPropertyValue("--workshop-accent"), "#ca78f2");
+  } finally {
+    await act(async () => { root.unmount(); });
+    dom.window.close();
+    globalThis.window = previous.window;
+    globalThis.document = previous.document;
+    globalThis.CustomEvent = previous.customEvent;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = previous.act;
   }
 });
