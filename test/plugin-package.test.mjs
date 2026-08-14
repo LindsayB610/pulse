@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { test } from "node:test";
@@ -14,6 +14,42 @@ const rootPackage = readFileSync("package.json", "utf8");
 const pluginPackage = readFileSync("plugin/package.json", "utf8");
 const rootLock = readFileSync("package-lock.json", "utf8");
 const pluginLock = readFileSync("plugin/package-lock.json", "utf8");
+
+function sourceFilesBelow(directory) {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) return sourceFilesBelow(path);
+    return /\.[cm]?[jt]sx?$/.test(entry.name) ? [path] : [];
+  });
+}
+
+function dependencyEntries(manifest) {
+  const entries = [];
+  const visit = (value) => {
+    if (!value || typeof value !== "object") return;
+    for (const [key, child] of Object.entries(value)) {
+      if (["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"].includes(key) && child && typeof child === "object") {
+        entries.push(...Object.entries(child));
+      }
+      visit(child);
+    }
+  };
+  visit(JSON.parse(manifest));
+  return entries;
+}
+
+function importSpecifiers(sourceText) {
+  const specifiers = [];
+  const pattern = /(?:\bfrom\s+|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)(["'])([^"']+)\1/g;
+  for (const match of sourceText.matchAll(pattern)) specifiers.push(match[2]);
+  return specifiers;
+}
+
+function isWorkshopSourceSpecifier(specifier) {
+  if (specifier.startsWith(".") || specifier.startsWith("/")) return /(?:^|\/)workshop(?:\/|$)/i.test(specifier);
+  return /workshop/i.test(specifier);
+}
+
 test("Pulse owns an external planned Workshop plugin without Workshop source imports", () => {
   assert.match(source, /export const workshopPluginDeclaration/);
   assert.match(source, /export function WorkshopToolView/);
@@ -31,15 +67,36 @@ test("Pulse owns an external planned Workshop plugin without Workshop source imp
   assert.doesNotMatch(source, /requestWorkspaceRoot\(undefined\)/);
   assert.match(styles, /\.pulse-ui__lede--wide \{ max-width: 780px; \}/);
   assert.match(source, /useEffect\(\(\) => \{ void refresh\(\); \}, \[refresh\]\)/);
-  assert.doesNotMatch(source, /workshop\/|\.\.\/workshop|@workshop/);
+  for (const file of sourceFilesBelow("plugin/src")) {
+    for (const specifier of importSpecifiers(readFileSync(file, "utf8"))) {
+      assert.equal(isWorkshopSourceSpecifier(specifier), false, `${file} must not import Workshop source or package ${specifier}`);
+    }
+  }
   for (const manifest of [rootPackage, pluginPackage, rootLock, pluginLock]) {
-    assert.doesNotMatch(manifest, /(?:file:|link:|workspace:).*workshop|@workshop\//i);
+    for (const [name, specifier] of dependencyEntries(manifest)) {
+      assert.doesNotMatch(name, /workshop/i, `forbidden Workshop package dependency: ${name}`);
+      if (typeof specifier === "string") {
+        assert.doesNotMatch(specifier, /(?:file:|link:|workspace:|git\+file:).*workshop/i, `forbidden Workshop source dependency: ${specifier}`);
+      }
+    }
   }
   assert.match(service, /pulsePath\("\/api\/v1\/snapshot"\)/);
   assert.doesNotMatch(service, /authorization|token|fetch\(/i);
   assert.match(definition, /Enter a reminder name/);
   assert.match(definition, /repeatEveryMinutes/);
   assert.doesNotMatch(source, /Delivery retry|Repeat while due|Repeat notification minutes/);
+});
+
+test("dependency-boundary detection covers package, alias, side-effect, dynamic, and relative Workshop imports", () => {
+  const forbidden = importSpecifiers(`
+    import "@workshop/runtime";
+    import view from "@marketing-builds/workshop";
+    const lazy = import("workshop/plugin");
+    const legacy = require("../workshop/src/native");
+  `);
+  assert.deepEqual(forbidden, ["@workshop/runtime", "@marketing-builds/workshop", "workshop/plugin", "../workshop/src/native"]);
+  for (const specifier of forbidden) assert.equal(isWorkshopSourceSpecifier(specifier), true);
+  assert.equal(isWorkshopSourceSpecifier("./workshop-host.js"), false, "Pulse's local generic host adapter remains allowed");
 });
 
 test("built plugin validates private metadata and never puts credentials in service requests", async () => {
@@ -97,6 +154,7 @@ test("public setup docs explain the generic Workshop connection without publishi
   assert.match(integration, /--workshop-canvas/);
   assert.match(integration, /standalone fallback/i);
   assert.match(integration, /changes Pulse\s+immediately/i);
+  assert.match(integration, /real browser/i);
   assert.doesNotMatch(integration, /data-theme|palette(?:Id|-id)|preset(?:Id|-id)/);
 });
 

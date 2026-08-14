@@ -37,21 +37,40 @@ test("Pulse adopts every stable semantic host token with its exact standalone fa
 test("Pulse applies inherited semantic roles to every representative interface state", () => {
   const requiredRules = [
     [/\.pulse-ui \{[^}]*background: var\(--pulse-canvas\);[^}]*color: var\(--pulse-text\)/s, "root canvas and text"],
-    [/\.pulse-ui__tab\[aria-current='page'\] \{[^}]*color: var\(--pulse-text\);[^}]*var\(--pulse-accent-soft\)/s, "selected tab"],
+    [/\.pulse-ui__tab\[aria-current='page'\] \{[^}]*color: var\(--pulse-strong-text\);[^}]*var\(--pulse-accent-soft\)/s, "selected tab"],
     [/\.pulse-ui :focus-visible \{[^}]*var\(--pulse-focus-ring\)/s, "focus indicator"],
     [/\.pulse-ui__button \{[^}]*var\(--pulse-border\)[^}]*var\(--pulse-control-surface\)/s, "controls"],
     [/\.pulse-ui__button--primary \{[^}]*var\(--pulse-on-action\)[^}]*var\(--pulse-accent-warm\)/s, "primary action"],
-    [/\.pulse-ui__button--danger \{[^}]*var\(--pulse-danger\)/s, "danger action"],
+    [/\.pulse-ui__button\.pulse-ui__button--danger \{[^}]*var\(--pulse-danger\)/s, "danger action"],
     [/\.pulse-ui__stat, \.pulse-ui__card, \.pulse-ui__panel \{[^}]*var\(--pulse-border\)[^}]*var\(--pulse-surface\)/s, "panels"],
     [/\.pulse-ui__badge--due \{[^}]*var\(--pulse-warning\)/s, "due status"],
     [/\.pulse-ui__status-dot \{[^}]*var\(--pulse-success\)/s, "online status"],
-    [/\.pulse-ui__field input, \.pulse-ui__field select \{[^}]*var\(--pulse-input-border\)[^}]*var\(--pulse-text\)[^}]*var\(--pulse-input-surface\)/s, "inputs"],
+    [/\.pulse-ui__field input, \.pulse-ui__field select \{[^}]*var\(--pulse-input-border\)[^}]*var\(--pulse-strong-text\)[^}]*var\(--pulse-input-surface\)/s, "inputs"],
     [/\.pulse-ui__history-icon \{[^}]*var\(--pulse-success\)/s, "history state"],
     [/\.pulse-ui__notice\[role='alert'\] \{[^}]*var\(--pulse-alert\)/s, "error notice"],
     [/\.pulse-ui__modal \{[^}]*var\(--pulse-modal-border\)[^}]*var\(--pulse-text\)[^}]*var\(--pulse-surface-raised\)/s, "modal"],
   ];
 
   for (const [pattern, description] of requiredRules) assert.match(styles, pattern, description);
+});
+
+test("standalone component-state fallbacks retain the exact pre-inheritance values", () => {
+  const exactFallbacks = [
+    ["--pulse-strong-text", "var(--workshop-text, #ffffff)"],
+    ["--pulse-tab-hover-surface", "var(--workshop-surface-raised, rgba(255,255,255,.06))"],
+    ["--pulse-success-halo", "color-mix(in srgb, var(--workshop-success, #5ee49b) 11%, transparent)"],
+    ["--pulse-accent-border-strong", "color-mix(in srgb, var(--workshop-accent-strong, #ff2f92) 45%, transparent)"],
+    ["--pulse-host-hover-highlight", "var(--workshop-text, transparent)"],
+  ];
+  for (const [name, value] of exactFallbacks) assert.ok(styles.includes(`${name}: ${value};`), `${name} must preserve ${value}`);
+  assert.match(styles, /\.pulse-ui__tab:hover \{[^}]*var\(--pulse-tab-hover-surface\)/s);
+  assert.match(styles, /\.pulse-ui__tab\[aria-current='page'\] \{[^}]*var\(--pulse-strong-text\)/s);
+  assert.match(styles, /\.pulse-ui__field input, \.pulse-ui__field select \{[^}]*var\(--pulse-strong-text\)/s);
+  assert.match(styles, /\.pulse-ui__preset\[aria-pressed='true'\] \{[^}]*var\(--pulse-strong-text\)[^}]*var\(--pulse-accent-border-strong\)/s);
+  assert.match(styles, /\.pulse-ui__status-dot \{[^}]*var\(--pulse-success-halo\)/s);
+  assert.match(styles, /\.pulse-ui__button:hover \{[^}]*var\(--pulse-host-hover-highlight\)/s);
+  assert.match(styles, /\.pulse-ui__field input:hover, \.pulse-ui__field select:hover \{[^}]*var\(--pulse-host-hover-highlight\)/s);
+  assert.match(styles, /\.pulse-ui__button--primary:hover \{[^}]*var\(--pulse-host-hover-highlight\)/s);
 });
 
 test("all production plugin selectors remain scoped to Pulse", () => {

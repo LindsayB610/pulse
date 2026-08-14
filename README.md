@@ -97,6 +97,9 @@ Start with:
 Requirements:
 
 - Node.js 20 or newer for development and checks
+- Chrome or Chromium for the browser-resolved theme contract test; set
+  `PULSE_TEST_CHROME` if its executable is outside the standard macOS or Linux
+  locations
 - a user-owned Netlify site for the production runner
 - an authenticated private ntfy topic and the ntfy Android app
 - Workshop with the generic secure-service capability for the desktop UI
@@ -117,6 +120,7 @@ configuration.
 ```sh
 npm test
 npm run test:coverage
+npm run test:theme-render
 npm run lint
 npm run format:check
 npm run typecheck

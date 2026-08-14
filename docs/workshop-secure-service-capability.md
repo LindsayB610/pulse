@@ -84,4 +84,7 @@ values.
 - Theme contract tests prove every optional host property has a fallback, every
   production selector remains scoped, and a representative inherited palette
   keeps controls, tabs, inputs, modals, and status messages readable.
+- A real browser render test resolves the production CSS with no host tokens and
+  with a representative non-default host palette, changes the host accent live,
+  checks the resulting styles, and captures a rendered screenshot.
 - Workshop independently typechecks and tests the native host commands.

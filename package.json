@@ -28,6 +28,7 @@
     "smoke:compose": "node scripts/smoke-compose.mjs",
     "test": "npm run build && npm run build:plugin && npm run typecheck:netlify && node --test test/*.test.mjs && tsx --test test/netlify-functions.test.ts",
     "test:coverage": "npm run build && npm run build:plugin && npm run typecheck:netlify && node --test --experimental-test-coverage test/*.test.mjs && tsx --test --experimental-test-coverage test/netlify-functions.test.ts",
+    "test:theme-render": "npm run build:plugin && node --test test/plugin-theme-browser.test.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:netlify": "tsc -p netlify/tsconfig.json --noEmit"
   },
