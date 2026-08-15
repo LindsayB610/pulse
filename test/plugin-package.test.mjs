@@ -14,6 +14,7 @@ const rootPackage = readFileSync("package.json", "utf8");
 const pluginPackage = readFileSync("plugin/package.json", "utf8");
 const rootLock = readFileSync("package-lock.json", "utf8");
 const pluginLock = readFileSync("plugin/package-lock.json", "utf8");
+const license = readFileSync("LICENSE", "utf8");
 
 function sourceFilesBelow(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -85,6 +86,13 @@ test("Pulse owns an external planned Workshop plugin without Workshop source imp
   assert.match(definition, /Enter a reminder name/);
   assert.match(definition, /repeatEveryMinutes/);
   assert.doesNotMatch(source, /Delivery retry|Repeat while due|Repeat notification minutes/);
+});
+
+test("the public root and distributable plugin declare the repository MIT license", () => {
+  assert.equal(JSON.parse(rootPackage).license, "MIT");
+  assert.equal(JSON.parse(pluginPackage).license, "MIT");
+  assert.match(license, /^MIT License\n/);
+  assert.match(license, /Copyright \(c\) 2026 Lindsay Brunner/);
 });
 
 test("dependency-boundary detection covers package, alias, side-effect, dynamic, and relative Workshop imports", () => {
