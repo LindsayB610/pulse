@@ -82,6 +82,12 @@ test("all production plugin selectors remain scoped to Pulse", () => {
   }
 });
 
+test("guided setup groups callouts, handoff actions, and forms with deliberate vertical rhythm", () => {
+  assert.match(styles, /\.pulse-ui__existing \{[^}]*display: grid;[^}]*gap: 24px;[^}]*margin-top: 30px;[^}]*\}/s);
+  assert.match(styles, /\.pulse-ui__existing > \.pulse-ui__done-when, \.pulse-ui__existing > \.pulse-ui__setup-form \{ margin-top: 0; \}/);
+  assert.match(styles, /\.pulse-ui__existing > \.pulse-ui__button \{ justify-self: start; \}/);
+});
+
 test("a representative inherited dark palette keeps rendered semantic pairs readable", () => {
   const palette = {
     canvas: "#071116",

@@ -161,6 +161,9 @@ export const pulseStyles = `
 .pulse-ui__done-when > span { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; color: var(--pulse-canvas); background: var(--pulse-success); font-weight: 950; }
 .pulse-ui__done-when strong { color: var(--pulse-success); }
 .pulse-ui__done-when p { margin: 4px 0 0; color: var(--pulse-text-muted); line-height: 1.45; }
+.pulse-ui__existing { display: grid; gap: 24px; max-width: 680px; margin-top: 30px; }
+.pulse-ui__existing > .pulse-ui__done-when, .pulse-ui__existing > .pulse-ui__setup-form { margin-top: 0; }
+.pulse-ui__existing > .pulse-ui__button { justify-self: start; }
 .pulse-ui__topic { display: block; max-width: 680px; margin-top: 28px; padding: 15px 17px; border: 1px solid var(--pulse-border); border-radius: 12px; color: var(--pulse-code-text); background: var(--pulse-input-surface); overflow-wrap: anywhere; }
 .pulse-ui__done-when .pulse-ui__topic { margin-top: 10px; }
 .pulse-ui__choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px; margin-top: 34px; }

@@ -51,6 +51,8 @@ test("a real browser resolves standalone fallbacks and a live inherited palette"
       statusHalo: "color(srgb 0.368627 0.894118 0.607843 / 0.11) 0px 0px 0px 4px",
       selectedPresetBorder: "color(srgb 1 0.184314 0.572549 / 0.45)",
       hostHoverHighlight: "rgba(0, 0, 0, 0)",
+      handoffGap: 24,
+      formGap: 24,
     });
     assert.deepEqual(result.inherited, {
       canvas: "rgb(7, 17, 22)",
@@ -74,6 +76,8 @@ test("a real browser resolves standalone fallbacks and a live inherited palette"
       success: "rgb(86, 214, 139)",
       focusRing: "rgb(98, 230, 189)",
       hostHoverHighlight: "rgb(255, 255, 255)",
+      handoffGap: 24,
+      formGap: 24,
     });
 
     execFileSync(chrome, [
@@ -124,6 +128,11 @@ ${surface("inherited")}
 <script>
 const read = (root) => {
   const style = (selector) => getComputedStyle(root.querySelector(selector));
+  const verticalGap = (first, second) => {
+    const before = root.querySelector(first).getBoundingClientRect();
+    const after = root.querySelector(second).getBoundingClientRect();
+    return Math.round(after.top - before.bottom);
+  };
   return {
     canvas: getComputedStyle(root).backgroundColor,
     panel: style(".pulse-ui__panel").backgroundColor,
@@ -149,6 +158,8 @@ const read = (root) => {
     statusHalo: style(".pulse-ui__status-dot").boxShadow,
     selectedPresetBorder: style(".pulse-ui__preset").borderTopColor,
     hostHoverHighlight: style(".pulse-theme-probe-hover").color,
+    handoffGap: verticalGap("[data-migration-callout]", "[data-migration-handoff]"),
+    formGap: verticalGap("[data-migration-handoff]", "[data-migration-form]"),
   };
 };
 const standaloneRoot = document.querySelector(".standalone .pulse-ui");
@@ -167,8 +178,10 @@ document.querySelector("#pulse-theme-result").textContent = JSON.stringify({
     selectedPresetText: standalone.selectedPresetText,
     tabHoverSurface: standalone.tabHoverSurface,
     statusHalo: standalone.statusHalo,
-    selectedPresetBorder: standalone.selectedPresetBorder,
-    hostHoverHighlight: standalone.hostHoverHighlight,
+      selectedPresetBorder: standalone.selectedPresetBorder,
+      hostHoverHighlight: standalone.hostHoverHighlight,
+      handoffGap: standalone.handoffGap,
+      formGap: standalone.formGap,
   },
   inherited: {
     canvas: inheritedBefore.canvas,
@@ -190,8 +203,10 @@ document.querySelector("#pulse-theme-result").textContent = JSON.stringify({
     danger: inheritedBefore.danger,
     warning: inheritedBefore.warning,
     success: inheritedBefore.success,
-    focusRing: inheritedBefore.focusRing,
-    hostHoverHighlight: inheritedBefore.hostHoverHighlight,
+      focusRing: inheritedBefore.focusRing,
+      hostHoverHighlight: inheritedBefore.hostHoverHighlight,
+      handoffGap: inheritedBefore.handoffGap,
+      formGap: inheritedBefore.formGap,
   },
 });
 </script></body></html>`;
@@ -206,6 +221,11 @@ function surface(kind) {
     <label class="pulse-ui__field">Name<input value="Reminder"></label>
     <button class="pulse-ui__preset" aria-pressed="true">30 minutes</button>
     <p class="pulse-ui__notice" role="alert">Could not save</p>
+    <div class="pulse-ui__existing">
+      <div class="pulse-ui__done-when" data-migration-callout><span>✓</span><div><strong>Your existing data stays put</strong><p>The runner and reminders remain unchanged.</p></div></div>
+      <button class="pulse-ui__button" data-migration-handoff>Open provider</button>
+      <form class="pulse-ui__setup-form" data-migration-form><label class="pulse-ui__field">Site address<input value="https://pulse.example"></label></form>
+    </div>
     <div class="pulse-ui__modal"><div class="pulse-ui__history-icon">✓</div>Modal</div>
     <i class="pulse-theme-probe-tab"></i><i class="pulse-theme-probe-focus"></i><i class="pulse-theme-probe-hover"></i>
   </main></section>`;
