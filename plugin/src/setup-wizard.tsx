@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ConfirmDialog } from "./confirm-dialog.js";
-import { PulseIcon } from "./icons.js";
+import { PulseIcon, type PulseIconKind } from "./icons.js";
 import type { SecureServiceRequester } from "./service.js";
 import { setupBack, setupForward, setupProgress, setupStateFromNative, type SetupState } from "./setup-machine.js";
 import {
@@ -63,6 +63,7 @@ export function PulseSetupWizard({ invoke, restored, initialState, onConnected, 
   const busyRef = useRef(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
+  const [completedHandoffs, setCompletedHandoffs] = useState<Partial<Record<SetupState, boolean>>>({});
   const [confirmingStartOver, setConfirmingStartOver] = useState(false);
   const progress = setupProgress(state);
   const topic = pending?.suggestedTopic ?? "Created after you start";
@@ -89,6 +90,7 @@ export function PulseSetupWizard({ invoke, restored, initialState, onConnected, 
     if (busyRef.current) return false;
     busyRef.current = true;
     setError("");
+    setStatus("");
     if (!pending) {
       setState(next);
       busyRef.current = false;
@@ -171,15 +173,17 @@ export function PulseSetupWizard({ invoke, restored, initialState, onConnected, 
     } finally { busyRef.current = false; setBusy(false); }
   };
 
-  const openSecretPage = async () => {
-    if (busyRef.current) return;
+  const openSecretPage = async (): Promise<boolean> => {
+    if (busyRef.current) return false;
     busyRef.current = true;
     setBusy(true); setError("");
     try {
       await openPulseNotificationCredentialHandoff(invoke);
       setStatus("Your runner opened in the browser. Paste the ntfy token there, save it, then return here.");
+      return true;
     } catch (caught) {
       setError(message(caught, "Pulse could not open the runner-owned secure page."));
+      return false;
     } finally { busyRef.current = false; setBusy(false); }
   };
 
@@ -218,7 +222,7 @@ export function PulseSetupWizard({ invoke, restored, initialState, onConnected, 
     setBusy(true); setError("");
     try {
       if (pending) await cancelPulseManagedSetup(invoke, pending.setupId);
-      setPending(undefined); setState("welcome"); setRunnerOrigin(""); setStatus("");
+      setPending(undefined); setState("welcome"); setRunnerOrigin(""); setStatus(""); setCompletedHandoffs({});
       return true;
     } catch (caught) {
       setError(message(caught, "Workshop could not safely clear this setup. Your progress is still here."));
@@ -226,17 +230,21 @@ export function PulseSetupWizard({ invoke, restored, initialState, onConnected, 
     } finally { busyRef.current = false; setBusy(false); }
   };
 
-  const openExternal = async (url: string, fallback: string) => {
+  const openExternal = async (url: string, fallback: string, success?: string, onOpened?: () => void) => {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
     setError("");
-    try { await openPulseSetupUrl(invoke, url); }
+    try {
+      await openPulseSetupUrl(invoke, url);
+      onOpened?.();
+      if (success) setStatus(success);
+    }
     catch (caught) { setError(message(caught, fallback)); }
     finally { busyRef.current = false; setBusy(false); }
   };
 
-  const copyText = async (value: string, label: string) => {
+  const copyText = async (value: string, label: string, onCopied?: () => void) => {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
@@ -244,9 +252,14 @@ export function PulseSetupWizard({ invoke, restored, initialState, onConnected, 
     try {
       if (!navigator.clipboard?.writeText) throw new Error("Clipboard access is unavailable.");
       await navigator.clipboard.writeText(value);
+      onCopied?.();
       setStatus(`${label} copied.`);
     } catch (caught) { setError(message(caught, `Pulse could not copy the ${label.toLowerCase()}.`)); }
     finally { busyRef.current = false; setBusy(false); }
+  };
+
+  const markHandoffComplete = (step: SetupState) => {
+    setCompletedHandoffs((current) => ({ ...current, [step]: true }));
   };
 
   const content = useMemo(() => setupContent(state, topic), [state, topic]);
@@ -260,7 +273,7 @@ export function PulseSetupWizard({ invoke, restored, initialState, onConnected, 
       <div className="pulse-ui__setup-track"><span style={{ width: `${(progress.current / progress.total) * 100}%` }} /></div>
     </div>}
     <main className="pulse-ui__setup-main">
-      {canGoBack && <button className="pulse-ui__back" type="button" disabled={busy} onClick={() => void back()}>← Back</button>}
+      {canGoBack && <button className="pulse-ui__back" type="button" disabled={busy} onClick={() => void back()}><PulseIcon kind="arrow-left" /> Back</button>}
       <p className="pulse-ui__eyebrow">{content.eyebrow}</p>
       <h2 id="pulse-setup-title">{content.title}</h2>
       <p className="pulse-ui__setup-lede">{content.lede}</p>
@@ -270,33 +283,35 @@ export function PulseSetupWizard({ invoke, restored, initialState, onConnected, 
         <button className="pulse-ui__button" type="button" onClick={() => setState("existing")}>Connect an existing Pulse</button>
         <button className="pulse-ui__text-button" type="button" onClick={() => setState("advanced")}>Advanced setup</button>
       </div>}
-      {state === "phone-user" && <StepActions busy={busy} primary="My ntfy user is saved" onPrimary={() => void next()} secondary="Open ntfy account" onSecondary={() => void openExternal(ntfyAccountUrl, "Pulse could not open the ntfy account page.")} />}
-      {state === "phone-topic" && <StepActions busy={busy} primary="My topic is reserved" onPrimary={() => void next()} secondary="Copy topic" onSecondary={() => void copyText(topic, "Topic")} />}
-      {state === "phone-subscription" && <StepActions busy={busy} primary="Pulse appears in my topics" onPrimary={() => void next()} secondary="Open ntfy for Android" onSecondary={() => void openExternal(ntfyAppUrl, "Pulse could not open the ntfy Android page.")} />}
-      {state === "phone-token" && <StepActions busy={busy} primary="I created the runner token" onPrimary={() => void next()} secondary="Open ntfy account" onSecondary={() => void openExternal(ntfyAccountUrl, "Pulse could not open the ntfy account page.")} />}
+      {state === "phone-user" && <HandoffActions busy={busy} completed={completedHandoffs[state] === true} action="Open ntfy account" actionAgain="Open ntfy account again" confirmation="My ntfy user is saved" already="My ntfy user is already saved" actionIcon="external" onAction={() => void openExternal(ntfyAccountUrl, "Pulse could not open the ntfy account page.", "ntfy opened. Save your Pulse user there, then return to Workshop.", () => markHandoffComplete(state))} onConfirm={() => void next()} />}
+      {state === "phone-topic" && <HandoffActions busy={busy} completed={completedHandoffs[state] === true} action="Copy topic" actionAgain="Copy topic again" confirmation="My topic is reserved" already="My topic is already reserved" actionIcon="copy" onAction={() => void copyText(topic, "Topic", () => markHandoffComplete(state))} onConfirm={() => void next()} />}
+      {state === "phone-subscription" && <HandoffActions busy={busy} completed={completedHandoffs[state] === true} action="Open ntfy for Android" actionAgain="Open ntfy for Android again" confirmation="Pulse appears in my topics" already="Pulse is already in my topics" actionIcon="external" onAction={() => void openExternal(ntfyAppUrl, "Pulse could not open the ntfy Android page.", "ntfy for Android opened. Subscribe to the Pulse topic, then return to Workshop.", () => markHandoffComplete(state))} onConfirm={() => void next()} />}
+      {state === "phone-token" && <HandoffActions busy={busy} completed={completedHandoffs[state] === true} action="Open ntfy account" actionAgain="Open ntfy account again" confirmation="I created the runner token" already="I already created the runner token" actionIcon="external" onAction={() => void openExternal(ntfyAccountUrl, "Pulse could not open the ntfy account page.", "ntfy opened. Create the Pulse runner token there, then return to Workshop.", () => markHandoffComplete(state))} onConfirm={() => void next()} />}
       {state === "runner-choice" && <div className="pulse-ui__choice-grid">
         <button className="pulse-ui__choice" type="button" disabled={busy} onClick={() => void persistState("runner-deploy")}><strong>Quick setup with Netlify</strong><span>Guided · about 3 minutes</span><p>Deploy Pulse into your own Netlify account. Netlify owns any quota or billing.</p></button>
         <button className="pulse-ui__choice" type="button" disabled={busy} onClick={() => void persistState("runner-pair")}><strong>Connect another compatible runner</strong><span>Advanced</span><p>Use an existing HTTPS deployment that implements the Pulse runner protocol.</p></button>
       </div>}
-      {state === "runner-deploy" && pending && <StepActions busy={busy} primary="I finished the deployment" onPrimary={() => void next()} secondary="Open Netlify deployment" onSecondary={() => void openExternal(netlifyHandoff(pending), "Pulse could not open the Netlify deployment page.")} />}
+      {state === "runner-deploy" && pending && <HandoffActions busy={busy} completed={completedHandoffs[state] === true} action="Open Netlify deployment" actionAgain="Open Netlify again" confirmation="I finished the deployment" already="I already finished the deployment" actionIcon="external" onAction={() => void openExternal(netlifyHandoff(pending), "Pulse could not open the Netlify deployment page.", "Netlify opened. Finish the deployment there, then return to Workshop.", () => markHandoffComplete(state))} onConfirm={() => void next()} />}
       {state === "runner-pair" && <form className="pulse-ui__setup-form" onSubmit={(event) => { event.preventDefault(); void pair(); }}>
         <label className="pulse-ui__field">Your Pulse site address<input aria-label="Pulse runner site address" type="url" placeholder="https://your-pulse-site.netlify.app" value={runnerOrigin} onChange={(event) => setRunnerOrigin(event.target.value)} required /><small>Paste the production site address shown by your provider. Workshop verifies the origin and deployment fingerprint before saving anything.</small></label>
         <button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large" disabled={busy || !runnerOrigin.trim()} type="submit">Verify and connect this runner</button>
       </form>}
-      {state === "delivery-secret" && <StepActions busy={busy} primary="I saved ntfy access" onPrimary={() => setState("delivery-test")} secondary="Open my secure runner page" onSecondary={() => void openSecretPage()} />}
-      {state === "delivery-test" && <div className="pulse-ui__setup-actions"><button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large" type="button" disabled={busy} onClick={() => void sendTest()}>Send test notification</button>{status.includes("Test sent") && <button className="pulse-ui__button" type="button" disabled={busy} onClick={() => setState("complete")}>I got it</button>}<button className="pulse-ui__text-button" type="button" disabled={busy} onClick={() => void sendTest()}>Send one more test</button></div>}
+      {state === "delivery-secret" && <HandoffActions busy={busy} completed={completedHandoffs[state] === true} action="Open my secure runner page" actionAgain="Open the secure page again" confirmation="I saved ntfy access" already="I already saved ntfy access" actionIcon="external" onAction={() => void openSecretPage().then((opened) => { if (opened) markHandoffComplete(state); })} onConfirm={() => { setStatus(""); setState("delivery-test"); }} />}
+      {state === "delivery-test" && (status.includes("Test sent")
+        ? <div className="pulse-ui__setup-actions"><button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large" type="button" disabled={busy} onClick={() => { setStatus(""); setState("complete"); }}>I got it</button><button className="pulse-ui__button" type="button" disabled={busy} onClick={() => void sendTest()}>Send one more test</button></div>
+        : <div className="pulse-ui__setup-actions"><button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large" type="button" disabled={busy} onClick={() => void sendTest()}>Send test notification</button></div>)}
       {state === "complete" && <div className="pulse-ui__setup-actions"><button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large" type="button" disabled={busy} onClick={() => void finish()}>Create my first reminder</button></div>}
       {state === "existing" && <ExistingSetup invoke={invoke} pending={pending} onConnected={onConnected} />}
       {state === "migration" && <div className="pulse-ui__existing">
-        <div className="pulse-ui__done-when"><SetupGlyph kind="key" /><div><strong>Update the runner, then add one public setup key</strong><p>First update this deployment to the current Pulse release. If Netlify created a fork for you, sync that fork with the upstream Pulse repository. Then add <code>PULSE_SETUP_PUBLIC_KEY</code> in the provider settings and deploy again:</p><code className="pulse-ui__topic">{pending?.publicKey ?? "Preparing…"}</code>{pending && <button className="pulse-ui__text-button" type="button" onClick={() => void copyText(pending.publicKey, "Public setup key")}>Copy public setup key</button>}</div></div>
+        <div className="pulse-ui__done-when"><SetupGlyph kind="key" /><div><strong>Update the runner, then add its setup verification key</strong><p>First update this deployment to the current Pulse release. If Netlify created a fork for you, sync that fork with the upstream Pulse repository. Then add <code>PULSE_SETUP_PUBLIC_KEY</code> in the provider settings and deploy again. This is the public half of a one-time pairing key; it cannot access your reminders or ntfy.</p><code className="pulse-ui__topic">{pending?.publicKey ?? "Preparing…"}</code>{pending && <button className="pulse-ui__text-button" type="button" onClick={() => void copyText(pending.publicKey, "Setup verification key")}><PulseIcon kind="copy" /> Copy setup verification key</button>}</div></div>
         <div className="pulse-ui__done-when"><SetupGlyph kind="shield" /><div><strong>Your existing data stays put</strong><p>This pairs Workshop to the same runner. It does not replace reminders, history, ntfy access, or your old private-folder connection.</p></div></div>
-        <button className="pulse-ui__button" type="button" onClick={() => void openExternal("https://app.netlify.com/", "Pulse could not open Netlify.")}>Open Netlify ↗</button>
+        <button className="pulse-ui__button pulse-ui__button--icon" type="button" onClick={() => void openExternal("https://app.netlify.com/", "Pulse could not open Netlify.")}><PulseIcon kind="external" /> Open Netlify</button>
         <form className="pulse-ui__setup-form" onSubmit={(event) => { event.preventDefault(); void migrate(); }}>
           <label className="pulse-ui__field">Existing Pulse site address<input aria-label="Existing Pulse site address for migration" type="url" value={runnerOrigin} onChange={(event) => setRunnerOrigin(event.target.value)} placeholder="https://your-pulse-site.netlify.app" required /><small>Wait for the redeploy to finish, then paste the production site origin.</small></label>
           <button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large" type="submit" disabled={busy || !pending || !runnerOrigin.trim()}>Verify and finish migration</button>
         </form>
       </div>}
-      {state === "advanced" && <div className="pulse-ui__setup-actions"><button className="pulse-ui__button" type="button" onClick={onManualSetup}>Use a private config folder</button><button className="pulse-ui__text-button" type="button" onClick={() => void openExternal("https://github.com/LindsayB610/pulse/blob/main/docs/deploy-runner.md", "Pulse could not open the runner documentation.")}>Read the compatible-runner protocol ↗</button></div>}
+      {state === "advanced" && <div className="pulse-ui__setup-actions"><button className="pulse-ui__button" type="button" onClick={onManualSetup}>Use a private config folder</button><button className="pulse-ui__text-button" type="button" onClick={() => void openExternal("https://github.com/LindsayB610/pulse/blob/main/docs/deploy-runner.md", "Pulse could not open the runner documentation.")}><PulseIcon kind="external" /> Read the compatible-runner protocol</button></div>}
       {error && <p className="pulse-ui__notice pulse-ui__notice--error" role="alert">{error}</p>}
       {!error && status && <p className="pulse-ui__notice pulse-ui__notice--success" role="status">{status}</p>}
     </main>
@@ -304,8 +319,23 @@ export function PulseSetupWizard({ invoke, restored, initialState, onConnected, 
   </section>;
 }
 
-function StepActions({ busy = false, primary, secondary, onPrimary, onSecondary }: { busy?: boolean; primary: string; secondary: string; onPrimary: () => void; onSecondary: () => void }): React.ReactElement {
-  return <div className="pulse-ui__setup-actions"><button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large" type="button" disabled={busy} onClick={onPrimary}>{primary}</button><button className="pulse-ui__button" type="button" disabled={busy} onClick={onSecondary}>{secondary}</button></div>;
+function HandoffActions({ busy = false, completed, action, actionAgain, confirmation, already, actionIcon, onAction, onConfirm }: {
+  busy?: boolean;
+  completed: boolean;
+  action: string;
+  actionAgain: string;
+  confirmation: string;
+  already: string;
+  actionIcon?: PulseIconKind;
+  onAction: () => void;
+  onConfirm: () => void;
+}): React.ReactElement {
+  const actionLabel = <>{actionIcon && <PulseIcon kind={actionIcon} />}{completed ? actionAgain : action}</>;
+  return <div className="pulse-ui__setup-actions">
+    {completed
+      ? <><button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large" type="button" disabled={busy} onClick={onConfirm}>{confirmation}</button><button className="pulse-ui__button pulse-ui__button--icon" type="button" disabled={busy} onClick={onAction}>{actionLabel}</button></>
+      : <><button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large pulse-ui__button--icon" type="button" disabled={busy} onClick={onAction}>{actionLabel}</button><button className="pulse-ui__button" type="button" disabled={busy} onClick={onConfirm}>{already}</button></>}
+  </div>;
 }
 
 function ExistingSetup({ invoke, pending, onConnected }: { invoke: HostInvoke; pending?: ManagedSetupView; onConnected: (requester: SecureServiceRequester) => void }): React.ReactElement {
@@ -314,6 +344,17 @@ function ExistingSetup({ invoke, pending, onConnected }: { invoke: HostInvoke; p
   const [status, setStatus] = useState("Creating this Mac’s one-time connection id…");
   const [busy, setBusy] = useState(false);
   React.useEffect(() => { if (pending) setStatus(""); }, [pending]);
+  const copyInstallationId = async () => {
+    if (!pending || busy) return;
+    setBusy(true); setStatus("");
+    try {
+      if (!window.navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+      await window.navigator.clipboard.writeText(pending.installationId);
+      setStatus("Installation id copied.");
+    } catch {
+      setStatus("Pulse could not copy this installation id.");
+    } finally { setBusy(false); }
+  };
   const connect = async () => {
     if (!pending) return;
     setBusy(true); setStatus("");
@@ -325,7 +366,7 @@ function ExistingSetup({ invoke, pending, onConnected }: { invoke: HostInvoke; p
     } finally { setBusy(false); }
   };
   return <div className="pulse-ui__existing">
-    <div className="pulse-ui__done-when"><SetupGlyph kind="laptop" /><div><strong>On this Mac</strong><p>Copy this installation id: <code>{pending?.installationId ?? "Preparing…"}</code></p></div></div>
+    <div className="pulse-ui__done-when"><SetupGlyph kind="laptop" /><div><strong>On this Mac</strong><p>This Mac’s installation id: <code>{pending?.installationId ?? "Preparing…"}</code></p>{pending && <button className="pulse-ui__text-button" type="button" disabled={busy} onClick={() => void copyInstallationId()}><PulseIcon kind="copy" /> Copy installation id</button>}</div></div>
     <div className="pulse-ui__done-when"><SetupGlyph kind="link" /><div><strong>On a connected Mac</strong><p>Open Pulse Settings → Add another Mac. Paste the installation id and copy the ten-minute invitation it creates.</p></div></div>
     <form className="pulse-ui__setup-form" onSubmit={(event) => { event.preventDefault(); void connect(); }}>
       <label className="pulse-ui__field">Existing Pulse site address<input aria-label="Existing Pulse runner site address" type="url" value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="https://your-pulse-site.netlify.app" required /></label>
@@ -344,13 +385,13 @@ function setupContent(state: SetupState, topic: string): { eyebrow: string; titl
     case "phone-subscription": return { eyebrow: "Phone · subscription", title: "Subscribe your phone to the Pulse topic", lede: `In the Android app, add the exact topic “${topic}” on ntfy.sh. Turn on Instant delivery when Android asks.`, body: <DoneWhen>Pulse appears under Subscribed topics and says Instant delivery on.</DoneWhen> };
     case "phone-token": return { eyebrow: "Phone · runner access", title: "Create one token for your runner", lede: "On ntfy.sh, open Account → Access tokens → Create access token. Name it “Pulse runner” and choose a durable expiry. Keep the tab open—you’ll paste the token into your runner later, never into Workshop.", body: <DoneWhen>You can see the new Pulse runner token once. Do not paste it into this screen.</DoneWhen> };
     case "runner-choice": return { eyebrow: "Cloud runner", title: "Choose where your reminders keep running", lede: "The runner checks schedules while your laptop is asleep. The guided option uses Netlify; compatible self-hosted runners remain available." };
-    case "runner-deploy": return { eyebrow: "Netlify quick setup", title: "Deploy Pulse into your Netlify account", lede: "Netlify will ask you to sign in, authorize a Git provider, choose a team, and name the site. The template contains only the public key and topic for this setup—never your ntfy token.", body: <DoneWhen>Netlify shows “Your site is live” and gives you an https://…netlify.app address.</DoneWhen> };
+    case "runner-deploy": return { eyebrow: "Netlify quick setup", title: "Deploy Pulse into your Netlify account", lede: "Netlify will ask you to sign in, authorize a Git provider, choose a team, and name the site. The template contains only a one-time setup verification key and topic—never your ntfy token.", body: <DoneWhen>Netlify shows “Your site is live” and gives you an https://…netlify.app address.</DoneWhen> };
     case "runner-pair": return { eyebrow: "Secure connection", title: "Connect this Mac to your runner", lede: "Workshop will verify the exact HTTPS origin, service version, and deployment fingerprint. The per-Mac credential goes straight to Keychain and never enters this page." };
     case "delivery-secret": return { eyebrow: "Notification delivery", title: "Give your runner access to ntfy", lede: "Workshop opens a one-use page on the runner you just verified. Paste the ntfy token there. The page removes its one-use capability from the address bar and never echoes the token.", body: <DoneWhen>The runner page says “Saved. Return to Workshop.”</DoneWhen> };
     case "delivery-test": return { eyebrow: "Delivery test", title: "Prove the notification reaches your phone", lede: "Send an isolated setup test. It creates no reminder, occurrence, history item, Done action, or Snooze action. Pulse cannot see Android receipt, so you confirm it here." };
     case "complete": return { eyebrow: "Setup complete", title: "Pulse is ready", lede: "Your runner is online, this Mac has its own revocable credential, and Android delivery is confirmed. Next: create the reminder you actually came here for.", body: <DoneWhen>You can close Workshop now; the runner keeps working in your account.</DoneWhen> };
     case "existing": return { eyebrow: "Existing Pulse", title: "Connect this Mac to a runner you already own", lede: "Each Mac gets its own revocable credential. You’ll create a ten-minute invitation from a Mac that is already connected." };
-    case "migration": return { eyebrow: "Safe migration", title: "Move this Mac to Workshop-managed access", lede: "Keep the same runner and all of its data. You’ll update its code, add one public setup key, and redeploy before Workshop replaces only this Mac’s connection." };
+    case "migration": return { eyebrow: "Safe migration", title: "Move this Mac to Workshop-managed access", lede: "Keep the same runner and all of its data. You’ll update its code, add one setup verification key, and redeploy before Workshop replaces only this Mac’s connection." };
     case "advanced": return { eyebrow: "Advanced setup", title: "Bring any compatible runner", lede: "Use this path for self-hosting, another provider, or the previous private-folder configuration. A compatible runner needs HTTPS, persistent state, scheduling, the Pulse manifest/pairing protocol, export, and deletion controls." };
   }
 }

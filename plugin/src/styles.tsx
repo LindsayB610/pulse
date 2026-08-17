@@ -80,16 +80,18 @@ export const pulseStyles = `
 .pulse-ui__section-label { color: var(--pulse-text-muted); font-size: 13px; font-weight: 750; margin: 0 0 11px; }
 .pulse-ui__list { display: grid; gap: 12px; }
 .pulse-ui__card { display: flex; justify-content: space-between; gap: 24px; padding: 19px 20px; }
-.pulse-ui__card--paused { opacity: .68; }
+.pulse-ui__card--paused .pulse-ui__card-main { opacity: .68; }
 .pulse-ui__card-main { min-width: 0; }
 .pulse-ui__card-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
 .pulse-ui__badge { display: inline-flex; align-items: center; border: 1px solid var(--pulse-badge-border); border-radius: 999px; color: var(--pulse-text-muted); padding: 4px 8px; font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
 .pulse-ui__badge--due { color: var(--pulse-warning); border-color: var(--pulse-warning-border); background: var(--pulse-warning-soft); }
+.pulse-ui__badge--success { color: var(--pulse-success); border-color: var(--pulse-success); background: var(--pulse-success-soft); }
+.pulse-ui__badge--warning { color: var(--pulse-warning); border-color: var(--pulse-warning-border); background: var(--pulse-warning-soft); }
 .pulse-ui__schedule { margin: 8px 0 6px; color: var(--pulse-schedule-text); }
 .pulse-ui__policy { margin: 0; color: var(--pulse-text-muted); font-size: 13px; }
 .pulse-ui__actions { align-self: center; display: flex; gap: 8px; flex: 0 0 auto; }
 .pulse-ui__empty { text-align: center; padding: 48px 24px; }
-.pulse-ui__empty-mark { width: 48px; height: 48px; display: grid; place-items: center; margin: 0 auto 16px; border-radius: 50%; color: var(--pulse-accent); background: var(--pulse-accent-soft); font-size: 24px; }
+.pulse-ui__empty-mark { width: 48px; height: 48px; display: grid; place-items: center; margin: 0 auto 16px; border-radius: 50%; color: var(--pulse-accent); background: var(--pulse-accent-soft); }
 .pulse-ui__panel { padding: 22px; }
 .pulse-ui__form { display: grid; gap: 22px; }
 .pulse-ui__field { display: grid; gap: 8px; color: var(--pulse-field-text); font-weight: 700; }
@@ -122,6 +124,7 @@ export const pulseStyles = `
 .pulse-ui__invitation { display: grid; gap: 6px; padding: 14px; border: 1px solid var(--pulse-success); border-radius: 11px; background: var(--pulse-success-soft); }
 .pulse-ui__invitation code { max-width: none; color: var(--pulse-text); font-size: 14px; }
 .pulse-ui__invitation small { color: var(--pulse-text-muted); }
+.pulse-ui__invitation .pulse-ui__text-button { justify-self: start; margin-top: 4px; }
 .pulse-ui__setting--clients { align-items: flex-start; }
 .pulse-ui__client-list { display: grid; gap: 8px; margin-top: 14px; }
 .pulse-ui__client-list > div { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 12px 0; border-top: 1px solid var(--pulse-border); }
@@ -138,7 +141,7 @@ export const pulseStyles = `
 .pulse-ui__setup-top { display: flex; align-items: center; justify-content: space-between; min-height: 68px; padding: 0 30px; border-bottom: 1px solid var(--pulse-border); }
 .pulse-ui__setup-brand { display: inline-flex; align-items: center; gap: 11px; color: var(--pulse-strong-text); font-weight: 800; }
 .pulse-ui__setup-mark { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; color: var(--pulse-on-action); background: var(--pulse-accent); font-size: 14px; font-weight: 950; }
-.pulse-ui__text-button { width: fit-content; border: 0; padding: 5px 0; color: var(--pulse-text-muted) !important; background: transparent; cursor: pointer; font-weight: 700; text-decoration: none; }
+.pulse-ui__text-button { display: inline-flex; align-items: center; gap: 6px; width: fit-content; border: 0; padding: 5px 0; color: var(--pulse-text-muted) !important; background: transparent; cursor: pointer; font-weight: 700; text-decoration: none; }
 .pulse-ui__text-button:hover, .pulse-ui__text-link:hover { color: var(--pulse-text) !important; }
 .pulse-ui__text-link { color: var(--pulse-text-muted); font-weight: 700; text-decoration: none; }
 .pulse-ui__setup-progress { padding: 20px 30px 0; }
@@ -149,7 +152,7 @@ export const pulseStyles = `
 .pulse-ui__setup-main { width: min(100%, 800px); min-height: 510px; padding: 52px 54px 64px; }
 .pulse-ui__setup-main h2 { max-width: 760px; font-size: clamp(34px, 5vw, 58px); line-height: 1.02; letter-spacing: -.055em; margin-bottom: 18px; }
 .pulse-ui__setup-lede { max-width: 720px; color: var(--pulse-text-muted); font-size: 18px; line-height: 1.58; }
-.pulse-ui__back { display: block; margin: -18px 0 34px; border: 0; padding: 4px 0; color: var(--pulse-text-muted) !important; background: transparent; cursor: pointer; font-weight: 750; }
+.pulse-ui__back { display: inline-flex; align-items: center; gap: 5px; margin: -18px 0 34px; border: 0; padding: 4px 0; color: var(--pulse-text-muted) !important; background: transparent; cursor: pointer; font-weight: 750; }
 .pulse-ui__back:hover { color: var(--pulse-text) !important; }
 .pulse-ui__promise-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 34px 0; }
 .pulse-ui__promise-grid > div { padding: 18px; border: 1px solid var(--pulse-border); border-radius: 14px; background: var(--pulse-timing-surface); }
@@ -161,6 +164,7 @@ export const pulseStyles = `
 .pulse-ui__done-when > span { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; color: var(--pulse-canvas); background: var(--pulse-success); font-weight: 950; }
 .pulse-ui__done-when strong { color: var(--pulse-success); }
 .pulse-ui__done-when p { margin: 4px 0 0; color: var(--pulse-text-muted); line-height: 1.45; }
+.pulse-ui__done-when .pulse-ui__text-button { margin-top: 8px; }
 .pulse-ui__existing { display: grid; gap: 24px; max-width: 680px; margin-top: 30px; }
 .pulse-ui__existing > .pulse-ui__done-when, .pulse-ui__existing > .pulse-ui__setup-form { margin-top: 0; }
 .pulse-ui__existing > .pulse-ui__button { justify-self: start; }

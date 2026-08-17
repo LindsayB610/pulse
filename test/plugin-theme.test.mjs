@@ -44,6 +44,8 @@ test("Pulse applies inherited semantic roles to every representative interface s
     [/\.pulse-ui__button\.pulse-ui__button--danger \{[^}]*var\(--pulse-danger\)/s, "danger action"],
     [/\.pulse-ui__stat, \.pulse-ui__card, \.pulse-ui__panel \{[^}]*var\(--pulse-border\)[^}]*var\(--pulse-surface\)/s, "panels"],
     [/\.pulse-ui__badge--due \{[^}]*var\(--pulse-warning\)/s, "due status"],
+    [/\.pulse-ui__badge--success \{[^}]*var\(--pulse-success\)/s, "online status badge"],
+    [/\.pulse-ui__badge--warning \{[^}]*var\(--pulse-warning\)/s, "warning status badge"],
     [/\.pulse-ui__status-dot \{[^}]*var\(--pulse-success\)/s, "online status"],
     [/\.pulse-ui__field input, \.pulse-ui__field select \{[^}]*var\(--pulse-input-border\)[^}]*var\(--pulse-strong-text\)[^}]*var\(--pulse-input-surface\)/s, "inputs"],
     [/\.pulse-ui__history-icon \{[^}]*var\(--pulse-success\)/s, "history state"],
@@ -86,6 +88,16 @@ test("guided setup groups callouts, handoff actions, and forms with deliberate v
   assert.match(styles, /\.pulse-ui__existing \{[^}]*display: grid;[^}]*gap: 24px;[^}]*margin-top: 30px;[^}]*\}/s);
   assert.match(styles, /\.pulse-ui__existing > \.pulse-ui__done-when, \.pulse-ui__existing > \.pulse-ui__setup-form \{ margin-top: 0; \}/);
   assert.match(styles, /\.pulse-ui__existing > \.pulse-ui__button \{ justify-self: start; \}/);
+});
+
+test("paused reminders mute content without making their actions look disabled", () => {
+  assert.match(styles, /\.pulse-ui__card--paused \.pulse-ui__card-main \{ opacity: \.68; \}/);
+  assert.doesNotMatch(styles, /\.pulse-ui__card--paused \{[^}]*opacity:/s);
+});
+
+test("shared vector-icon controls align labels without text glyph stand-ins", () => {
+  assert.match(styles, /\.pulse-ui__text-button \{[^}]*display: inline-flex;[^}]*align-items: center;[^}]*gap:/s);
+  assert.match(styles, /\.pulse-ui__back \{[^}]*display: inline-flex;[^}]*align-items: center;[^}]*gap:/s);
 });
 
 test("a representative inherited dark palette keeps rendered semantic pairs readable", () => {

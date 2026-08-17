@@ -107,6 +107,9 @@ test("mounted production Pulse UI renders a truthful management dashboard and cr
     assert.match(text, /Take recycling out/);
     assert.match(text, /Due now/);
     assert.equal([...dom.window.document.querySelectorAll("button")].some((button) => /done|snooze/i.test(button.textContent)), false);
+    const pausedCard = [...dom.window.document.querySelectorAll("article")].find((article) => article.textContent.includes("Take recycling out"));
+    assert.equal(pausedCard.classList.contains("pulse-ui__card--paused"), true);
+    assert.ok(pausedCard.querySelector(".pulse-ui__card-main"));
 
     await act(async () => { [...dom.window.document.querySelectorAll("button")].find((button) => button.textContent.includes("New reminder")).click(); });
     assert.match(dom.window.document.body.textContent, /Create reminder/);
@@ -179,6 +182,8 @@ test("G6 settings creates a bound additional-Mac invitation and sends isolated t
     if (entry.path === "/api/setup/test-notification") return { status: 202, body: { accepted: true } };
     return { status: 400, body: {} };
   });
+  const copied = [];
+  Object.defineProperty(mounted.dom.window.navigator, "clipboard", { configurable: true, value: { writeText: async (value) => copied.push(value) } });
   try {
     await mounted.render("settings");
     await mounted.act(async () => { [...mounted.dom.window.document.querySelectorAll("button")].find((candidate) => candidate.textContent === "Add a Mac").click(); });
@@ -192,6 +197,11 @@ test("G6 settings creates a bound additional-Mac invitation and sends isolated t
     });
     assert.match(mounted.dom.window.document.body.textContent, /PULSE-FIXTURE-INVITATION/);
     assert.match(mounted.dom.window.document.body.textContent, /expires in ten minutes/i);
+    const copyInvitation = [...mounted.dom.window.document.querySelectorAll("button")].find((candidate) => candidate.textContent.includes("Copy invitation"));
+    assert.ok(copyInvitation.querySelector("svg"));
+    await mounted.act(async () => { copyInvitation.click(); });
+    assert.deepEqual(copied, ["PULSE-FIXTURE-INVITATION"]);
+    assert.match(mounted.dom.window.document.body.textContent, /Invitation code copied/);
     await mounted.act(async () => { [...mounted.dom.window.document.querySelectorAll("button")].find((candidate) => candidate.textContent === "Send test").click(); });
     assert.ok(mounted.requests.some((entry) => entry.path === "/api/setup/test-notification"));
     assert.match(mounted.dom.window.document.body.textContent, /Test sent/);
@@ -355,12 +365,33 @@ test("production UI gives empty and unavailable states an actionable explanation
     await mounted.render("reminders");
     assert.match(mounted.dom.window.document.body.textContent, /No reminders yet/);
     assert.match(mounted.dom.window.document.body.textContent, /Create your first reminder/);
+    assert.ok(mounted.dom.window.document.querySelector(".pulse-ui__empty-mark svg"), "the empty state uses a meaningful vector reminder icon");
     assert.match(mounted.dom.window.document.body.textContent, /Status unavailable/);
     await mounted.render("settings");
     assert.match(mounted.dom.window.document.body.textContent, /Runner status unavailable/);
     assert.match(mounted.dom.window.document.body.textContent, /has not received a current health report/);
   } finally {
     await mounted.close();
+  }
+});
+
+test("runner health badges use semantic success and warning treatments", async () => {
+  const online = await mountedPulse();
+  try {
+    await online.render("settings");
+    const badge = [...online.dom.window.document.querySelectorAll(".pulse-ui__badge")].find((candidate) => candidate.textContent === "Online");
+    assert.equal(badge.classList.contains("pulse-ui__badge--success"), true);
+  } finally {
+    await online.close();
+  }
+
+  const stale = await mountedPulse({ ...fixtureSnapshot, runnerHealth: { status: "stale", checkedAt: fixtureSnapshot.runnerHealth.checkedAt } });
+  try {
+    await stale.render("settings");
+    const badge = [...stale.dom.window.document.querySelectorAll(".pulse-ui__badge")].find((candidate) => candidate.textContent === "Needs attention");
+    assert.equal(badge.classList.contains("pulse-ui__badge--warning"), true);
+  } finally {
+    await stale.close();
   }
 });
 

@@ -61,14 +61,17 @@ test("G5 mounted production wizard completes the guided path without exposing cr
 
     await act(async () => { button(dom.window.document, "Set up Pulse").click(); });
     assert.match(dom.window.document.body.textContent, /Sign into ntfy on your Android phone/);
+    await act(async () => { button(dom.window.document, "Open ntfy account").click(); });
     await act(async () => { button(dom.window.document, "My ntfy user is saved").click(); });
     assert.match(dom.window.document.body.textContent, /Reserve the private topic/);
     assert.match(dom.window.document.body.textContent, new RegExp(pending.suggestedTopic));
-    await act(async () => { button(dom.window.document, "← Back").click(); });
+    await act(async () => { button(dom.window.document, "Back").click(); });
     assert.match(dom.window.document.body.textContent, /Sign into ntfy/);
     await act(async () => { button(dom.window.document, "My ntfy user is saved").click(); });
-    await act(async () => { button(dom.window.document, "My topic is reserved").click(); });
+    await act(async () => { button(dom.window.document, "My topic is already reserved").click(); });
+    await act(async () => { button(dom.window.document, "Open ntfy for Android").click(); });
     await act(async () => { button(dom.window.document, "Pulse appears in my topics").click(); });
+    await act(async () => { button(dom.window.document, "Open ntfy account").click(); });
     await act(async () => { button(dom.window.document, "I created the runner token").click(); });
     await act(async () => { button(dom.window.document, "Quick setup with Netlify").click(); });
     await act(async () => { button(dom.window.document, "Open Netlify deployment").click(); });
@@ -86,7 +89,7 @@ test("G5 mounted production wizard completes the guided path without exposing cr
     assert.equal([...dom.window.document.querySelectorAll("button")].some((item) => item.textContent.includes("Back")), false, "the first post-pair step has no dead pre-pair destination");
     await act(async () => { button(dom.window.document, "Open my secure runner page").click(); });
     await act(async () => { button(dom.window.document, "I saved ntfy access").click(); });
-    await act(async () => { button(dom.window.document, "← Back").click(); });
+    await act(async () => { button(dom.window.document, "Back").click(); });
     assert.match(dom.window.document.body.textContent, /Give your runner access to ntfy/);
     await act(async () => { button(dom.window.document, "I saved ntfy access").click(); });
     await act(async () => { button(dom.window.document, "Send test notification").click(); });
@@ -116,6 +119,96 @@ test("G5 runner origin validation rejects local, path-bearing, and credentialed 
   assert.equal(normalizeRunnerOrigin("https://runner.example/"), "https://runner.example");
   for (const unsafe of ["http://runner.example", "https://localhost", "https://runner.example/api", "https://user:pass@runner.example"]) {
     assert.throws(() => normalizeRunnerOrigin(unsafe), /HTTPS site address/i);
+  }
+});
+
+test("G5 guided handoffs lead with the required action and reveal confirmation after it opens", async () => {
+  const { dom, previous } = installDom();
+  const React = await import("react");
+  const { act } = React;
+  const { createRoot } = await import("react-dom/client");
+  const { PulseSetupWizard } = await import("../plugin/dist/index.js");
+  const pending = {
+    version: 1,
+    setupId: "setup_handoff",
+    serviceId: "pulse-runner",
+    configFile: "pulse.config.json",
+    installationId: "installation_handoff",
+    publicKey: "MCowBQYDK2VwAyEAhandoffPublicKeyMaterial000000000",
+    fingerprint: "AA:BB:CC:DD:EE:FF:00:11",
+    suggestedTopic: "pulse_handoff_topic",
+    state: "runner-deploy",
+  };
+  const invoke = async (command, args) => {
+    if (command === "open_external_url") return undefined;
+    if (command === "update_managed_secure_service_setup") return { ...pending, state: args.state };
+    throw new Error(`Unexpected command ${command}`);
+  };
+  const root = createRoot(dom.window.document.getElementById("app"));
+  try {
+    await act(async () => { root.render(React.createElement(PulseSetupWizard, { invoke, restored: pending, initialState: "runner-deploy", onConnected: () => {}, onManualSetup: () => {} })); });
+    let actions = [...dom.window.document.querySelectorAll(".pulse-ui__setup-actions button")];
+    assert.deepEqual(actions.map((candidate) => candidate.textContent.trim()), ["Open Netlify deployment", "I already finished the deployment"]);
+    assert.equal(actions[0].classList.contains("pulse-ui__button--primary"), true);
+    assert.ok(actions[0].querySelector("svg"), "the external handoff uses the shared vector icon");
+
+    await act(async () => { actions[0].click(); });
+    actions = [...dom.window.document.querySelectorAll(".pulse-ui__setup-actions button")];
+    assert.deepEqual(actions.map((candidate) => candidate.textContent.trim()), ["I finished the deployment", "Open Netlify again"]);
+    assert.equal(actions[0].classList.contains("pulse-ui__button--primary"), true);
+    assert.match(dom.window.document.querySelector("[role='status']").textContent, /Finish the deployment there, then return to Workshop/i);
+  } finally {
+    await act(async () => { root.unmount(); });
+    dom.window.close();
+    globalThis.window = previous.window;
+    globalThis.document = previous.document;
+    globalThis.CustomEvent = previous.customEvent;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = previous.act;
+  }
+});
+
+test("G5 phone and secret steps put open or copy actions before completion claims", async () => {
+  const { dom, previous } = installDom();
+  const React = await import("react");
+  const { act } = React;
+  const { createRoot } = await import("react-dom/client");
+  const { PulseSetupWizard } = await import("../plugin/dist/index.js");
+  const opened = [];
+  const invoke = async (command, args) => {
+    if (command === "open_external_url" || command === "open_managed_secure_service_handoff") {
+      opened.push({ command, args });
+      return command === "open_managed_secure_service_handoff" ? { opened: true } : undefined;
+    }
+    throw new Error(`Unexpected command ${command}`);
+  };
+  const root = createRoot(dom.window.document.getElementById("app"));
+  const render = async (initialState) => {
+    await act(async () => { root.render(React.createElement(PulseSetupWizard, { key: initialState, invoke, initialState, onConnected: () => {}, onManualSetup: () => {} })); });
+  };
+  try {
+    await render("phone-user");
+    let actions = [...dom.window.document.querySelectorAll(".pulse-ui__setup-actions button")];
+    assert.deepEqual(actions.map((candidate) => candidate.textContent.trim()), ["Open ntfy account", "My ntfy user is already saved"]);
+    assert.ok(actions[0].querySelector("svg"));
+
+    await render("phone-topic");
+    actions = [...dom.window.document.querySelectorAll(".pulse-ui__setup-actions button")];
+    assert.deepEqual(actions.map((candidate) => candidate.textContent.trim()), ["Copy topic", "My topic is already reserved"]);
+
+    await render("delivery-secret");
+    actions = [...dom.window.document.querySelectorAll(".pulse-ui__setup-actions button")];
+    assert.deepEqual(actions.map((candidate) => candidate.textContent.trim()), ["Open my secure runner page", "I already saved ntfy access"]);
+    await act(async () => { actions[0].click(); });
+    actions = [...dom.window.document.querySelectorAll(".pulse-ui__setup-actions button")];
+    assert.deepEqual(actions.map((candidate) => candidate.textContent.trim()), ["I saved ntfy access", "Open the secure page again"]);
+    assert.equal(opened.at(-1).command, "open_managed_secure_service_handoff");
+  } finally {
+    await act(async () => { root.unmount(); });
+    dom.window.close();
+    globalThis.window = previous.window;
+    globalThis.document = previous.document;
+    globalThis.CustomEvent = previous.customEvent;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = previous.act;
   }
 });
 
@@ -152,7 +245,7 @@ test("G5 wizard advances or resets only after Workshop persists the transition",
     assert.match(dom.window.document.body.textContent, /Sign into ntfy/);
 
     await act(async () => {
-      button(dom.window.document, "My ntfy user is saved").click();
+      button(dom.window.document, "My ntfy user is already saved").click();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     assert.match(dom.window.document.body.textContent, /Sign into ntfy/);
@@ -215,7 +308,9 @@ test("G5 existing-installation setup cancels its native one-time record before r
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     assert.match(dom.window.document.body.textContent, /installation_existing/);
-    await act(async () => { button(dom.window.document, "← Back").click(); });
+    const copyInstallation = button(dom.window.document, "Copy installation id");
+    assert.ok(copyInstallation.querySelector("svg"));
+    await act(async () => { button(dom.window.document, "Back").click(); });
     assert.equal(calls.some((call) => call.command === "cancel_managed_secure_service_setup"), false, "Back cannot silently invalidate a one-time deployment key");
     assert.match(dom.window.document.querySelector("[role='dialog']").textContent, /will no longer pair/i);
     await act(async () => {
@@ -255,12 +350,16 @@ test("G5 setup notification tests are single-flight under duplicate activation",
   const root = createRoot(dom.window.document.getElementById("app"));
   try {
     await act(async () => { root.render(React.createElement(PulseSetupWizard, { invoke, initialState: "delivery-test", onConnected: () => {}, onManualSetup: () => {} })); });
+    assert.deepEqual([...dom.window.document.querySelectorAll(".pulse-ui__setup-actions button")].map((candidate) => candidate.textContent.trim()), ["Send test notification"]);
     const send = button(dom.window.document, "Send test notification");
     await act(async () => { send.click(); send.click(); });
     assert.equal(sends, 1);
     assert.equal(send.disabled, true);
     await act(async () => { resolveRequest({ status: 202, body: { accepted: true } }); await pendingRequest; });
     assert.match(dom.window.document.body.textContent, /Test sent/);
+    const sentActions = [...dom.window.document.querySelectorAll(".pulse-ui__setup-actions button")];
+    assert.deepEqual(sentActions.map((candidate) => candidate.textContent.trim()), ["I got it", "Send one more test"]);
+    assert.equal(sentActions[0].classList.contains("pulse-ui__button--primary"), true);
   } finally {
     await act(async () => { root.unmount(); });
     dom.window.close();
