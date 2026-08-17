@@ -114,9 +114,9 @@ test("secrets are read from env and not from committed example files", () => {
 
 test("private production delivery config requires authenticated ntfy and a separate runner API token", () => {
   const env = {
-    PULSE_CONFIG_PATH: "/Users/lindsaybrunner/Documents/workshop-private/pulse/pulses.yaml",
-    PULSE_STATE_PATH: "/Users/lindsaybrunner/Documents/workshop-private/pulse/state.json",
-    PULSE_PRIVATE_ROOT: "/Users/lindsaybrunner/Documents/workshop-private/pulse",
+    PULSE_CONFIG_PATH: "/Users/example/Private/pulse/pulses.yaml",
+    PULSE_STATE_PATH: "/Users/example/Private/pulse/state.json",
+    PULSE_PRIVATE_ROOT: "/Users/example/Private/pulse",
     PULSE_NOTIFY_PROVIDER: "ntfy",
     PULSE_NTFY_SERVER: "https://ntfy.sh",
     PULSE_NTFY_TOPIC: "A4Ns8xqk2Vw7mZ3rT9yP5dJ6hL1cB0eF",

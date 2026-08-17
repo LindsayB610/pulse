@@ -1,11 +1,36 @@
 # Workshop Generic Secure Service Capability
 
-Pulse is an optional Workshop plugin. It uses a host capability that reads a
-plugin-owned non-secret connection configuration from the selected private
-root, then makes a constrained authenticated request without returning the
-credential to the plugin webview.
+Pulse is an optional Workshop plugin. Normal setup uses Workshop’s generic
+managed secure-service capability. The previous selected-private-root commands
+remain the Advanced/manual connection. Both paths make constrained
+authenticated requests without returning credentials to the plugin webview.
 
 ## Host contract
+
+### Managed setup
+
+Pulse uses these generic commands with `serviceId: "pulse-runner"` and
+`configFile: "pulse.config.json"`:
+
+- `managed_secure_service_capability`
+- `begin|read|update|cancel_managed_secure_service_setup`
+- `complete_managed_secure_service_setup`
+- `complete_managed_secure_service_invitation`
+- `read_managed_secure_service_metadata`
+- `request_managed_secure_service`
+- `open_managed_secure_service_handoff`
+- `disconnect_managed_secure_service`
+
+Workshop owns an app-data directory with `0700` permissions, a `0600` pending
+record, an ephemeral Ed25519 private key, origin/fingerprint verification,
+per-installation Keychain storage, atomic config commit, rollback/revocation,
+and safe runner-owned browser handoffs. The redacted pending view contains only
+the setup id, installation id, public key, display fingerprint, suggested
+topic, and progress. Disconnect identifies and revokes the authenticated
+current client before removing its Keychain/config records; it never deletes
+the remote service.
+
+### Advanced/manual connection
 
 ```ts
 type SecureServiceMetadata = { version: 1; endpoint: string; credentialRef: string };
@@ -19,9 +44,10 @@ workspaceRoot, configFile, request })` loads the referenced OS-keychain
 credential internally and returns status/body, never the token.
 
 Pulse always passes `configFile: "pulse.config.json"`. Its `WorkshopToolView`
-first reads the metadata, then constructs its requester from the configured
-service command. It retains no bearer token, authorization header, or secret in
-the webview.
+prefers a managed connection, resumes a native pending setup when present, and
+uses the manual root only for an existing Advanced installation. It retains no
+bearer token, authorization header, ntfy token, setup private key, or durable
+credential in the webview.
 
 ## Appearance inheritance
 
@@ -54,7 +80,7 @@ values.
 
 ## Validation and limits
 
-- selected root must be absolute, regular, and outside public repositories;
+- an Advanced selected root must be absolute, regular, and outside public repositories;
 - config is JSON, version `1`, with an HTTPS endpoint; localhost HTTP is an
   explicit development-only exception;
 - request paths are relative, start with `/api/`, contain no origin, query, or
@@ -73,6 +99,10 @@ values.
    state.
 4. Prove the configured origin and credential reference are the only ones used.
 5. Prove localhost development support is explicit and unavailable in production.
+6. Prove managed pending records are private, redacted, restart-safe, and stale
+   after 24 hours.
+7. Prove pairing binds versions, origin, challenge, installation, and
+   fingerprint; partial local failure revokes the newly issued client.
 
 ## Pulse integration evidence
 

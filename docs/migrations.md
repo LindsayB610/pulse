@@ -1,8 +1,29 @@
 # Migrations
 
-Pulse state files are JSON and must be validated before a runner trusts them.
+## Manual/private-folder to managed Workshop access
 
-Current state version:
+Use **Pulse Settings → Move to managed access**:
+
+1. Workshop creates a new ephemeral Ed25519 key and displays only its public
+   value.
+2. Add that value as `PULSE_SETUP_PUBLIC_KEY` to the existing runner and
+   redeploy.
+3. Paste the existing production origin into Pulse.
+4. Workshop verifies the same origin and new fingerprint, completes pairing,
+   stores a per-Mac credential in Keychain, and switches to managed access.
+
+The runner’s reminder definitions, occurrences, completion history, ntfy
+subscription/token, and provider account stay in place. The old manual folder
+and its credential remain untouched until the managed transaction succeeds.
+On failure, continue using the previous connection and retry.
+
+Legacy `PULSE_API_TOKEN` authentication remains accepted during migration.
+Legacy `PULSE_NTFY_TOKEN` is recognized as configured so migration does not
+force an unnecessary token replacement.
+
+## State-file migrations
+
+The advanced local state file uses:
 
 ```json
 {
@@ -12,34 +33,10 @@ Current state version:
 }
 ```
 
-## Migration Plan
-
-1. Stop the runner.
-2. Back up `$PULSE_PRIVATE_ROOT/state.json` outside the public checkout.
-3. Export the existing state with `node bin/pulse-state.mjs export`.
-4. Run `npm test` before changing release code.
-5. Apply the migration.
-6. Import with `node bin/pulse-state.mjs import --input PATH`.
-7. Start the runner and verify logs.
-
-## Supported Migration
-
-Phase 9 supports the pre-version private state shape:
-
-```json
-{
-  "occurrences": [],
-  "events": []
-}
-```
-
-The importer upgrades that shape to `version: 1` and preserves existing
+The importer upgrades the pre-version shape to version 1 while preserving
 occurrences, events, due state, and completion history.
 
-## Rules For Future Migrations
-
-- Write a failing migration test before changing state format.
-- Preserve occurrence IDs.
-- Preserve `occurrence_completed` history.
-- Reject malformed imports before writing active state.
-- Never put private state fixtures in the public repo.
+Before changing a local state format: stop the runner, back up private state,
+export it with `node bin/pulse-state.mjs export`, run the tests, import into a
+disposable path, verify history, then restart. Future migrations must preserve
+occurrence ids/completion history and reject malformed input before writing.

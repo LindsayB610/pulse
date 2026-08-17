@@ -1,5 +1,11 @@
 # Pulse D0 Design Evidence
 
+> The newer guided bring-your-own-service setup study lives in
+> [`guided-setup-README.md`](guided-setup-README.md), with three complete G1
+> experience directions, the [fresh nine-reviewer retest](usability-council/round-2/synthesis.md),
+> and evidence in `onboarding-evidence/`. This document
+> remains the decision record for Pulse's reminder-management UI.
+
 This directory contains a public-safe, fixture-driven prototype for the Pulse
 Workshop plugin. It never connects to the private runner and contains no real
 reminders, tokens, topics, paths, or completion history.

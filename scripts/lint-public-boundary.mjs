@@ -4,7 +4,16 @@ import { extname, join, relative } from "node:path";
 
 const root = process.env.PULSE_PUBLIC_BOUNDARY_ROOT ?? new URL("../", import.meta.url).pathname;
 const publicFiles = discoverPublicFiles(root);
-const blockedPatterns = [/Lucas/i, /\bmedication\b/i, /\bshot\b/i, /555-\d{4}/, /@gmail\.com/i];
+const blockedPatterns = [
+  /Lucas/i,
+  /\bmedication\b/i,
+  /\bshot\b/i,
+  /555-\d{4}/,
+  /@gmail\.com/i,
+  /\/Users\/lindsaybrunner(?:\/|\b)/i,
+  /\blindsayb82\b/i,
+  /\bthis_is_my_new_app_called_pulse_by_guppi\b/i,
+];
 const privateValuePattern =
   /^[ \t]*(?:export[ \t]+)?PULSE_(?:NTFY_TOPIC|NTFY_TOKEN|API_TOKEN)[ \t]*(?:=|:)[ \t]*(?!$|#)[^\s]/m;
 const failures = [];

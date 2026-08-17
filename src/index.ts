@@ -85,6 +85,45 @@ export type {
 export type { PulseRunnerHealth } from "./health.js";
 export { notificationActionOccurrenceId } from "./notification-actions.js";
 export { isPulseNtfySequenceId, ntfySequenceIdForOccurrence } from "./ntfy-sequence.js";
+export {
+  assertDeploymentAdapter,
+  createDeploymentHandoff,
+  createNetlifyDeploymentAdapter,
+  DEPLOYMENT_ADAPTER_SCHEMA_VERSION,
+} from "./deployment-adapters.js";
+export type {
+  DeploymentAdapter,
+  DeploymentCapability,
+  DeploymentHandoffInput,
+} from "./deployment-adapters.js";
+export {
+  authenticateRunnerClient,
+  bootstrapRunnerSetup,
+  createAdditionalDeviceCode,
+  createRunnerSecretSetupSession,
+  createRunnerPairingChallenge,
+  consumeRunnerSecretSetupSession,
+  validateRunnerSecretSetupSession,
+  displayPublicKeyFingerprint,
+  pairingProofPayload,
+  pairAdditionalRunnerClient,
+  pairFirstRunnerClient,
+  parseRunnerSetupState,
+  readRunnerManifest,
+  revokeRunnerClient,
+} from "./setup.js";
+export type {
+  PairingProofPayload,
+  PublicRunnerClient,
+  RunnerAdditionalDeviceCode,
+  RunnerClientRecord,
+  RunnerManifest,
+  RunnerPairingChallenge,
+  RunnerPairingProof,
+  RunnerPairingResult,
+  RunnerSetupState,
+  RunnerSecretSetupSession,
+} from "./setup.js";
 export type {
   PulseUiListenInput,
   PulseUiRunnerHealth,

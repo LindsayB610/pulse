@@ -1,0 +1,335 @@
+{
+  "schemaVersion": "pulse.guided-setup.fixture.v1",
+  "generatedFor": "G0 contract and threat-model lock",
+  "fictionalDataOnly": true,
+  "runnerProtocol": {
+    "manifest": {
+      "service": "pulse-runner",
+      "apiVersion": "pulse.service.v1",
+      "setupVersion": "pulse.setup.v1",
+      "canonicalOrigin": "https://pulse-sparrow-demo.example",
+      "setupState": "awaiting-pairing",
+      "deployedPublicKeyFingerprint": "E8:43:92:1B:73:AA:08:19",
+      "capabilities": [
+        "pairing",
+        "per-client-credentials",
+        "notification-secret-capture",
+        "test-notification",
+        "health",
+        "export",
+        "delete"
+      ]
+    },
+    "paths": {
+      "manifest": "/api/setup/manifest",
+      "challenge": "/api/setup/challenge",
+      "pair": "/api/setup/pair",
+      "secretCapture": "/api/setup/notification-secret",
+      "testNotification": "/api/setup/test-notification",
+      "clients": "/api/clients",
+      "health": "/api/health"
+    },
+    "limits": {
+      "challengeLifetimeSeconds": 120,
+      "additionalDeviceCodeLifetimeSeconds": 600,
+      "setupBrowserSessionLifetimeSeconds": 600,
+      "maximumRequestBytes": 16384,
+      "maximumResponseBytes": 65536,
+      "maximumRedirects": 0
+    }
+  },
+  "coreStateMachine": {
+    "version": "pulse.setup-machine.v1",
+    "states": [
+      "welcome",
+      "phone-preparation",
+      "runner-selection",
+      "deployment-handoff",
+      "deployment-return",
+      "origin-verification",
+      "pairing",
+      "notification-secret-capture",
+      "delivery-test",
+      "complete",
+      "repair",
+      "advanced"
+    ],
+    "runnerCapabilityRequirements": [
+      "stable-https-origin",
+      "durable-private-storage",
+      "reliable-scheduling",
+      "origin-bound-pairing",
+      "private-notification-secret-storage",
+      "management-links",
+      "export",
+      "deletion"
+    ],
+    "providerSelectionSource": "adapter-registry"
+  },
+  "adapters": [
+    {
+      "contractVersion": "pulse.runner-adapter.v1",
+      "id": "netlify",
+      "provider": "Netlify",
+      "quickSetup": true,
+      "ownership": "user-account",
+      "handoff": {
+        "mode": "browser-template",
+        "prefill": ["ephemeral-public-key", "private-topic", "notification-server"],
+        "forbid": ["notification-provider-token", "ephemeral-private-key", "durable-client-credential"]
+      },
+      "return": {
+        "preferred": "provider-success-link",
+        "fallback": "normalized-site-address",
+        "proof": "origin-bound-native-pairing"
+      },
+      "secretCapture": {
+        "mode": "runner-hosted-browser",
+        "storage": "provider-encrypted-site-store",
+        "opensNatively": true,
+        "entersPulse": false,
+        "entersWorkshop": false,
+        "entersBuild": false
+      },
+      "lifecycle": {
+        "manage": true,
+        "repair": true,
+        "update": true,
+        "export": true,
+        "delete": true
+      }
+    },
+    {
+      "contractVersion": "pulse.runner-adapter.v1",
+      "id": "northstar-cloud",
+      "provider": "Northstar Cloud (fictional)",
+      "quickSetup": true,
+      "ownership": "user-account",
+      "handoff": {
+        "mode": "browser-template",
+        "prefill": ["ephemeral-public-key", "private-topic", "notification-server"],
+        "forbid": ["notification-provider-token", "ephemeral-private-key", "durable-client-credential"]
+      },
+      "return": {
+        "preferred": "provider-success-link",
+        "fallback": "normalized-site-address",
+        "proof": "origin-bound-native-pairing"
+      },
+      "secretCapture": {
+        "mode": "runner-hosted-browser",
+        "storage": "provider-encrypted-site-store",
+        "opensNatively": true,
+        "entersPulse": false,
+        "entersWorkshop": false,
+        "entersBuild": false
+      },
+      "lifecycle": {
+        "manage": true,
+        "repair": true,
+        "update": true,
+        "export": true,
+        "delete": true
+      }
+    }
+  ],
+  "pendingSetup": {
+    "schemaVersion": "workshop.secure-service.pending.v1",
+    "opaqueSetupId": "setup_demo_4wR9k7mQ",
+    "serviceIdentity": "pulse-runner",
+    "currentStep": "deployment-return",
+    "completedAcknowledgements": ["ownership", "phone-prepared"],
+    "notificationServer": "https://ntfy.example",
+    "privateTopic": "pulse_demo_8f71c4b295de40c2a5a932e14c7b91d8",
+    "deployedOrigin": "https://pulse-sparrow-demo.example",
+    "publicKey": "MCowBQYDK2VwAyEAFICTIONALPUBLICKEYONLY",
+    "displayFingerprint": "E8:43:92:1B:73:AA:08:19",
+    "privateKeyReference": "native-keychain-reference-not-returned-to-webview",
+    "createdAt": "2026-01-12T17:00:00.000Z",
+    "updatedAt": "2026-01-12T17:04:00.000Z",
+    "deploymentKnown": true,
+    "pairingComplete": false,
+    "retention": "explicit-abandonment-required-after-deployment"
+  },
+  "pendingSetupRedactedView": {
+    "schemaVersion": "workshop.secure-service.pending-view.v1",
+    "opaqueSetupId": "setup_demo_4wR9k7mQ",
+    "currentStep": "deployment-return",
+    "completedAcknowledgements": ["ownership", "phone-prepared"],
+    "notificationServer": "https://ntfy.example",
+    "privateTopic": "pulse_demo_8f71c4b295de40c2a5a932e14c7b91d8",
+    "deployedOrigin": "https://pulse-sparrow-demo.example",
+    "publicKey": "MCowBQYDK2VwAyEAFICTIONALPUBLICKEYONLY",
+    "displayFingerprint": "E8:43:92:1B:73:AA:08:19",
+    "deploymentKnown": true,
+    "pairingComplete": false,
+    "hasNativePrivateKey": true
+  },
+  "secretFlow": {
+    "values": [
+      {
+        "id": "notification-provider-token",
+        "allowedObservers": [
+          "user",
+          "notification-provider",
+          "user-browser-on-runner-origin",
+          "runner-production-runtime",
+          "runner-provider-encrypted-storage"
+        ],
+        "forbiddenObservers": [
+          "pulse-webview",
+          "workshop-javascript",
+          "workshop-local-state",
+          "deploy-url",
+          "template-form",
+          "build-runtime",
+          "repository",
+          "logs"
+        ]
+      },
+      {
+        "id": "ephemeral-private-key",
+        "allowedObservers": ["workshop-native-keychain", "workshop-native-signer"],
+        "forbiddenObservers": [
+          "pulse-webview",
+          "workshop-javascript",
+          "runner",
+          "runner-provider",
+          "repository",
+          "logs"
+        ]
+      },
+      {
+        "id": "durable-client-credential",
+        "allowedObservers": [
+          "runner-issuance-runtime",
+          "workshop-native-service",
+          "workshop-native-keychain"
+        ],
+        "forbiddenObservers": [
+          "pulse-webview",
+          "workshop-javascript",
+          "configuration-file",
+          "runner-persistent-storage",
+          "repository",
+          "logs"
+        ]
+      }
+    ]
+  },
+  "pairingTranscripts": [
+    {
+      "id": "valid-origin-bound-proof",
+      "origin": "https://pulse-sparrow-demo.example",
+      "fingerprint": "E8:43:92:1B:73:AA:08:19",
+      "apiVersion": "pulse.service.v1",
+      "challengeState": "fresh",
+      "redirects": 0,
+      "signatureState": "valid-and-origin-bound",
+      "expected": "accept"
+    },
+    {
+      "id": "wrong-origin",
+      "mutation": "signed origin differs from candidate origin",
+      "expected": "reject"
+    },
+    {
+      "id": "wrong-fingerprint",
+      "mutation": "manifest fingerprint differs from pending public key",
+      "expected": "reject"
+    },
+    {
+      "id": "api-downgrade",
+      "mutation": "manifest advertises unsupported lower setup version",
+      "expected": "reject"
+    },
+    {
+      "id": "redirect",
+      "mutation": "challenge endpoint redirects to another origin",
+      "expected": "reject"
+    },
+    {
+      "id": "replay",
+      "mutation": "consumed challenge is submitted again",
+      "expected": "reject"
+    },
+    {
+      "id": "challenge-relay",
+      "mutation": "challenge from the real runner is relayed through a malicious origin",
+      "expected": "reject"
+    }
+  ],
+  "setupResponses": {
+    "healthyManifest": {
+      "status": 200,
+      "body": {
+        "service": "pulse-runner",
+        "apiVersion": "pulse.service.v1",
+        "setupVersion": "pulse.setup.v1",
+        "canonicalOrigin": "https://pulse-sparrow-demo.example",
+        "setupState": "awaiting-pairing",
+        "deployedPublicKeyFingerprint": "E8:43:92:1B:73:AA:08:19"
+      }
+    },
+    "pairingSuccessRedacted": {
+      "status": 201,
+      "nativeReturn": {
+        "connected": true,
+        "endpoint": "https://pulse-sparrow-demo.example",
+        "credentialStored": true,
+        "notificationDeliveryConfigured": false
+      }
+    },
+    "providerRejected": {
+      "status": 422,
+      "body": {
+        "code": "notification-provider-rejected",
+        "message": "Your runner is online, but notification delivery needs repair.",
+        "safeState": "Your reminders and runner connection are still there."
+      }
+    }
+  },
+  "currentJourney": {
+    "requiresTerminal": true,
+    "requiresHandwrittenConfig": true,
+    "steps": [
+      "Create an ntfy account.",
+      "Choose a provider tier that supports a protected topic.",
+      "Reserve a private topic.",
+      "Subscribe the Android app.",
+      "Enable notification permission and instant delivery.",
+      "Create an ntfy access token.",
+      "Create a Netlify project from the public Pulse repository.",
+      "Generate three independent secrets.",
+      "Configure production function environment values.",
+      "Deploy and inspect the scheduled runner.",
+      "Create a private folder outside both public repositories.",
+      "Write pulse.config.json by hand.",
+      "Store a matching API credential in the macOS Keychain.",
+      "Enter the absolute private folder path in Pulse.",
+      "Create and verify a test reminder."
+    ]
+  },
+  "targetJourney": {
+    "requiresTerminal": false,
+    "requiresHandwrittenConfig": false,
+    "steps": [
+      "Understand account ownership and cost.",
+      "Prepare ntfy and the Android subscription.",
+      "Deploy or connect a compatible user-owned runner.",
+      "Pair this Mac using origin-bound native proof.",
+      "Open the runner-owned secure page and save the ntfy token.",
+      "Send and confirm a test notification.",
+      "Create the first reminder."
+    ]
+  },
+  "migration": {
+    "fixtureVersion": "pulse.legacy-installation.v1",
+    "legacyAuth": "single-environment-api-token",
+    "localConfigVersion": 1,
+    "remindersPreserved": true,
+    "historyPreserved": true,
+    "phoneSubscriptionPreserved": true,
+    "oldCredentialRemovedAutomatically": false,
+    "rollbackOnFailure": true
+  }
+}

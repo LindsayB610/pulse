@@ -28,6 +28,9 @@ weekly-reminder model:
 - public example configs
 - private config guardrails
 - Pulse-owned plugin UI using Workshop's generic secure-service capability
+- guided first-run setup with native pending-state restoration, origin-bound
+  runner pairing, per-Mac credentials, a runner-owned ntfy-token handoff, and
+  an isolated delivery test
 - optional semantic host-theme inheritance with exact standalone color fallbacks
 - release hardening with backup, restore, migration, import validation, and
   release checklist gates
@@ -35,6 +38,15 @@ weekly-reminder model:
 Twilio/SMS is retired. Pulse does not send SMS or email.
 
 See [project-plan.md](project-plan.md) for the full phased product plan.
+
+The guided user-owned setup is documented in
+[docs/guided-setup.md](docs/guided-setup.md). ntfy and Netlify are the first
+supported adapters, not permanent core dependencies. The previous manual
+private-folder setup remains available under Advanced setup. The selected
+prototype, rendered evidence, and
+[fresh nine-reviewer usability retest](design/usability-council/round-2/synthesis.md)
+are public. A disposable production run and two unfamiliar-human production
+walkthroughs remain the final release gates.
 
 ## How It Works
 
@@ -67,12 +79,16 @@ Production data is split deliberately:
 
 - **Netlify Blobs:** real pulse definitions, occurrence state, event history,
   and runner heartbeat
-- **Netlify environment:** ntfy topic/token, runner API token, notification
-  action secret, provider settings, and public callback origin
-- **Private local Pulse folder:** `pulse.config.json`, containing only the
-  service endpoint and a Keychain credential reference
-- **macOS Keychain:** the runner API credential used by Workshop's constrained
-  native service requester
+- **Netlify environment:** public setup key, private topic name, notification
+  server origin, and provider mode; Netlify supplies the canonical production
+  site URL
+- **Private Netlify Blobs:** the ntfy token, generated notification-action
+  signing material, hashed client credentials, hashed setup capabilities, real
+  definitions, occurrence state, history, and heartbeat
+- **Workshop native application data:** an ephemeral pending setup record and,
+  after pairing, a metadata-only `pulse.config.json`
+- **macOS Keychain:** a separate runner credential for this Workshop
+  installation
 
 The runner API token never enters Pulse's webview.
 
@@ -82,12 +98,18 @@ Netlify runner is authoritative for this release.
 
 ## Getting Started
 
-Start with:
+For normal setup, start with:
+
+- [docs/guided-setup.md](docs/guided-setup.md)
+
+Advanced, development, and operations references:
 
 - [docs/quickstart-local-demo.md](docs/quickstart-local-demo.md)
 - [docs/private-config.md](docs/private-config.md)
 - [docs/env-vars.md](docs/env-vars.md)
 - [docs/deploy-runner.md](docs/deploy-runner.md)
+- [docs/runner-setup-protocol.md](docs/runner-setup-protocol.md)
+- [docs/deployment-adapters.md](docs/deployment-adapters.md)
 - [docs/verify-runner.md](docs/verify-runner.md)
 - [docs/security-and-privacy.md](docs/security-and-privacy.md)
 - [docs/backup-and-restore.md](docs/backup-and-restore.md)
@@ -100,7 +122,7 @@ Requirements:
 - Chrome or Chromium for the browser-resolved theme contract test; set
   `PULSE_TEST_CHROME` if its executable is outside the standard macOS or Linux
   locations
-- a user-owned Netlify site for the production runner
+- a user-owned compatible runner; Netlify is the first guided adapter
 - an authenticated private ntfy topic and the ntfy Android app
 - Workshop with the generic secure-service capability for the desktop UI
 
@@ -111,8 +133,9 @@ npm install
 npm test
 ```
 
-Then follow the local demo, private config, deployment, and verification guides
-above. Never substitute public example data for a tested private production
+Normal users follow the setup inside Workshop. The raw configuration and
+deployment guides are for local development, self-hosting, migration, and
+recovery. Never substitute public example data for a private production
 configuration.
 
 ## Scripts

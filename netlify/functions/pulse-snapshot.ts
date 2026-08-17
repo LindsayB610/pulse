@@ -3,7 +3,7 @@ import { pulseError, pulseJson, readPulseSnapshot, requirePulseAuthorization } f
 
 export default async (request: Request) => {
   try {
-    requirePulseAuthorization(request);
+    await requirePulseAuthorization(request);
     return pulseJson(await readPulseSnapshot());
   } catch (error) {
     return pulseError(error);

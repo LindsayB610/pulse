@@ -111,3 +111,16 @@ test("D0 prototype completes management workflows and preserves phone-only actio
     dom.window.close();
   }
 });
+
+test("D0 empty dashboard contains no stale reminder or next-notification fixture", async () => {
+  const dom = await prototype();
+  try {
+    navigate(dom, "empty");
+    const text = dom.window.document.body.textContent;
+    assert.match(text, /Active reminders\s*0/i);
+    assert.match(text, /Next notification\s*Nothing scheduled/i);
+    assert.doesNotMatch(text, /Due now|Take recycling out/i);
+  } finally {
+    dom.window.close();
+  }
+});

@@ -1,21 +1,13 @@
-# Private Config
+# Advanced Private Configuration
 
-Pulse separates public engine code from private runner data. For this release,
-the hosted Netlify runner is authoritative; a local `pulses.yaml` is a private
-backup/export, not a transactionally synchronized second source of truth.
+The normal guided setup does not ask for a folder, JSON file, runner API token,
+or direct Keychain work. This document describes the previous manual connection
+and local-file runner used for development, recovery, and advanced self-hosting.
 
-Public files:
-
-- `.env.example`
-- `pulses.example.yaml`
-- demo docs
-- tests
-
-For this Workshop computer, keep private Pulse data here, outside both public
-repositories:
+Keep private data outside every public repository, for example:
 
 ```text
-/Users/lindsaybrunner/Documents/workshop-private/pulse/
+/absolute/private/pulse/
   .env
   pulses.yaml
   state.json
@@ -23,51 +15,12 @@ repositories:
   pulse.config.json
 ```
 
-Private files:
+Never commit real reminder titles, schedules, `.env`, state, history, backups,
+logs, ntfy topics/tokens, runner credentials, or `pulse.config.json`.
 
-- `.env`
-- `pulses.yaml`
-- state files
-- backups
-- logs
+## Manual Workshop connection
 
-Keep private files outside git. A real deployment should pass private paths with
-environment variables such as `PULSE_CONFIG_PATH` and `PULSE_STATE_PATH`.
-See [env-vars.md](env-vars.md) for the full environment contract.
-
-On another host, choose an absolute private root outside that host's public
-Pulse checkout (for example, `/srv/pulse-private`). The directory layout stays
-the same; only the absolute host path changes.
-
-The production contract requires authenticated ntfy delivery and a separate
-runner API token. A random topic alone is not treated as private. The ntfy
-server must enforce access control for its token, whether it is `ntfy.sh` or a
-self-hosted HTTPS server.
-
-Example private runner environment:
-
-```sh
-PULSE_CONFIG_PATH=/Users/lindsaybrunner/Documents/workshop-private/pulse/pulses.yaml
-PULSE_STATE_PATH=/Users/lindsaybrunner/Documents/workshop-private/pulse/state.json
-PULSE_PRIVATE_ROOT=/Users/lindsaybrunner/Documents/workshop-private/pulse
-PULSE_RUNNER_MODE=production
-PULSE_NOTIFY_PROVIDER=ntfy
-PULSE_NTFY_SERVER=https://ntfy.sh
-PULSE_NTFY_TOPIC=
-PULSE_NTFY_TOKEN=
-PULSE_API_TOKEN=
-```
-
-Set the three blank secret values only in this private file or your host's
-secret store; do not paste them into public documentation.
-
-The public repo includes `pulses.example.yaml` only as a safe fixture. Copy it to
-a private path before adding real obligations.
-
-## Workshop Secure-Service Connection
-
-Workshop never receives the runner API token in its webview. Its Pulse plugin
-reads only this metadata file from the private folder:
+The Advanced setup screen accepts a private directory containing:
 
 ```json
 {
@@ -77,37 +30,25 @@ reads only this metadata file from the private folder:
 }
 ```
 
-`endpoint` must be the HTTPS origin of the private Pulse API, with no path.
-`credentialRef` is a name, not a token. Store the matching token in the local
-macOS Keychain using Workshop's generic secure-service credential store; the
-Workshop host adds it to API requests and keeps it out of Pulse's UI.
+`endpoint` must be the HTTPS origin with no path. `credentialRef` is a name,
+not a secret. Store its matching value in Workshop’s generic macOS Keychain
+service. Workshop adds it to constrained requests natively; Pulse’s webview
+never receives it.
 
-In Workshop, open Pulse, enter the absolute private folder path, and click
-**Connect Pulse**. Pulse loads existing reminders automatically and lets you
-create or manage them from that same view. The private folder is selected once
-per Workshop installation; Pulse remembers only that local path so it can
-reconnect after an app update. The API credential remains in the macOS Keychain
-and never enters Pulse's webview or local storage. The folder path does not
-belong in the public Pulse repository.
+The selected folder remains local to that Workshop installation. **Change
+folder** changes only this local connection. It does not move or synchronize
+runner data.
 
-When Pulse is connected, Settings labels the private folder **Connected** and
-the cloud runner separately as **Online**, stale, or unavailable. Use **Change
-folder** only when moving Pulse to a different private folder; it opens an
-inline, prefilled editor and never relies on a browser prompt. Refresh retries
-the current service connection without changing folders.
+## Local-file runner
 
-## Private Pulse Config
+Copy [../pulses.example.yaml](../pulses.example.yaml) to the private directory
+before adding real obligations. Point `PULSE_CONFIG_PATH`, `PULSE_STATE_PATH`,
+and `PULSE_PRIVATE_ROOT` at those private files. The hosted runner remains the
+production source of truth unless you deliberately operate this local model.
 
-Start from [../examples/forced-test-pulse.yaml](../examples/forced-test-pulse.yaml)
-or [../pulses.example.yaml](../pulses.example.yaml). Keep the private copy at a
-path like `/Users/lindsaybrunner/Documents/workshop-private/pulse/pulses.yaml`.
+## Move an old installation to managed access
 
-Do not commit:
-
-- real pulse titles
-- real schedules
-- phone numbers
-- ntfy topic and required access token
-- runner API token
-- `state.json`
-- backups
+Use **Pulse Settings → Move to managed access**. Add the public setup key to the
+existing deployment and pair the same origin. Pulse preserves the old manual
+folder and remote data until managed pairing succeeds; successful migration
+then removes only Workshop’s obsolete folder selection.

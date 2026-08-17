@@ -38,18 +38,23 @@ const basePulse = (id: string, snoozeEveryMinutes?: number) => ({
   },
 });
 
-test("Netlify functions use authenticated Blob-backed definitions and preserve concurrent writes", async () => {
-  const envNames = ["PULSE_API_TOKEN", "PULSE_NOTIFY_PROVIDER", "PULSE_NTFY_SERVER", "PULSE_NTFY_TOPIC", "PULSE_NTFY_TOKEN", "PULSE_PUBLIC_BASE_URL", "PULSE_NOTIFICATION_ACTION_SECRET"] as const;
+test("Netlify functions use authenticated Blob-backed definitions and preserve concurrent writes", async (context) => {
+  context.mock.timers.enable({ apis: ["Date"], now: new Date("2026-08-09T16:50:00.000Z") });
+  const keys = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]);
+  const publicKey = Buffer.from(await crypto.subtle.exportKey("spki", keys.publicKey)).toString("base64url");
+  const envNames = ["CONTEXT", "URL", "PULSE_SETUP_PUBLIC_KEY", "PULSE_API_TOKEN", "PULSE_NOTIFY_PROVIDER", "PULSE_NTFY_SERVER", "PULSE_NTFY_TOPIC", "PULSE_NTFY_TOKEN", "PULSE_PUBLIC_BASE_URL", "PULSE_NOTIFICATION_ACTION_SECRET"] as const;
   const before = Object.fromEntries(envNames.map((name) => [name, process.env[name]]));
   Object.assign(process.env, {
+    CONTEXT: "production",
+    URL: "https://pulse.test",
+    PULSE_SETUP_PUBLIC_KEY: publicKey,
     PULSE_API_TOKEN: "test-api-token",
     PULSE_NOTIFY_PROVIDER: "ntfy",
     PULSE_NTFY_SERVER: "https://ntfy.test",
     PULSE_NTFY_TOPIC: "test-topic",
     PULSE_NTFY_TOKEN: "test-notification-token",
-    PULSE_PUBLIC_BASE_URL: "https://pulse.test",
-    PULSE_NOTIFICATION_ACTION_SECRET: "test-notification-action-secret",
   });
+  delete process.env.PULSE_NOTIFICATION_ACTION_SECRET;
   setPulseBlobStoreForTest(new MemoryBlobStore());
   const originalFetch = globalThis.fetch;
   const deliveries: Array<{ url: string; method: string; actions: string; authorization: string }> = [];
@@ -138,6 +143,7 @@ test("Netlify functions use authenticated Blob-backed definitions and preserve c
     assert.equal(snapshotConfig.path, "/api/v1/snapshot");
     assert.equal(pulseConfig.path, "/api/v1/pulses/:id");
   } finally {
+    context.mock.timers.reset();
     setPulseBlobStoreForTest(undefined);
     globalThis.fetch = originalFetch;
     for (const name of envNames) {

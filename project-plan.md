@@ -28,12 +28,38 @@ The product promise is:
 | 7 | Complete | Pulse-owned plugin UI | Pulse owns its view, routes, creation form, and mounted UI tests; Workshop is an optional host. |
 | 8 | Complete | Generic secure service | Workshop supplies the generic secret-preserving service capability. |
 | 9 | Complete | Release hardening | Backup, restore, migrations, security review, and end-to-end acceptance gates are documented and tested. |
+| G0–G7 | Implemented locally | Guided BYO setup | Provider-neutral guided setup, native origin-bound pairing, runner-owned secret capture, migration, repair, additional Macs, disconnect, and operations docs. |
+| G8 | In progress | Production proof | Automated proof is green; disposable Netlify/Android migration and two unfamiliar-human walkthroughs remain before general release. |
+
+## Approved Next Feature Program
+
+Guided BYO setup is scoped in
+[docs/guided-byo-setup-plan.md](docs/guided-byo-setup-plan.md). It replaces
+the developer-oriented first run with a Pulse-owned onboarding and recovery
+experience using each user's own notification and runner-provider accounts.
+ntfy and Netlify are the first supported adapters, while the product depends on
+provider-neutral notification and runner contracts. The plan includes the
+required generic Workshop native capability, secure origin-bound pairing,
+migration, complete state/design coverage, and phase-by-phase TDD gates.
+The selected first-run structure is a phase-aware Companion Split View: one
+focused doorway first, then cross-device guidance with progressively disclosed
+existing/self-hosted runner paths. Its human-usability gate remains open after
+the original welcome screen failed the owner walkthrough. A nine-reviewer agent
+preflight and a fresh nine-reviewer retest have since exercised the happy,
+experienced, and recovery paths. All reproduced round-two findings were fixed;
+the latest judgment and regression proof are recorded in
+[design/usability-council/round-2/synthesis.md](design/usability-council/round-2/synthesis.md).
+This reduces, but does not replace, the remaining unfamiliar-human gate.
+
+This program does not change reminder recurrence or notification semantics.
+Bounded recurrence remains a separate product build.
 
 ## Pulse Rebuild Program — Historical Record
 
-**Status: R0–R7 are complete for the current weekly-only product.** The next
-product build is bounded recurrence; it is deliberately not folded into this
-historical rebuild record.
+**Status: R0–R7 are complete for the current weekly-only product.** Follow-on
+product builds are specified separately rather than folded into this historical
+rebuild record. Guided BYO setup is the approved next feature program; bounded
+recurrence remains a separate future build.
 
 ### Product decisions already made
 
@@ -165,7 +191,7 @@ Pulse should be its own public GitHub repository.
 Expected local project path:
 
 ```text
-/Users/lindsaybrunner/Documents/marketing-builds/pulse
+/Users/example/Projects/pulse
 ```
 
 Expected GitHub shape:

@@ -37,7 +37,7 @@ test("phase 0 required repo files exist", () => {
 
 test("phase 0 package scripts include lint, format, build, docs, and tests", () => {
   const packageJson = JSON.parse(read("package.json"));
-  assert.equal(packageJson.scripts.test, "npm run build && npm run build:plugin && npm run typecheck:netlify && node --test test/*.test.mjs && tsx --test test/netlify-functions.test.ts");
+  assert.equal(packageJson.scripts.test, "npm run build && npm run build:plugin && npm run typecheck:netlify && node --test test/*.test.mjs && tsx --test test/*.test.ts");
   assert.equal(packageJson.scripts.typecheck, "tsc -p tsconfig.json --noEmit");
   assert.equal(packageJson.scripts["typecheck:netlify"], "tsc -p netlify/tsconfig.json --noEmit");
   assert.match(packageJson.scripts["test:coverage"], /experimental-test-coverage/);
@@ -108,6 +108,30 @@ test("public boundary lint discovers nested public files and rejects private top
       assert.equal(result.status, 1);
       assert.match(result.stderr, new RegExp(`docs/nested/${file} assigns a private ntfy topic or token`));
       rmSync(join(docsDir, file));
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("public boundary lint rejects owner-specific local paths and private identifiers", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pulse-public-identity-boundary-"));
+  try {
+    mkdirSync(join(dir, "docs"), { recursive: true });
+    [
+      ["path.md", "/Users/lindsaybrunner/Documents/workshop-private/pulse"],
+      ["account.md", "Sign in as lindsayb82"],
+      ["topic.md", "this_is_my_new_app_called_pulse_by_guppi"],
+    ].forEach(([file, content]) => {
+      writeFileSync(join(dir, "docs", file), `${content}\n`);
+      const result = spawnSync(process.execPath, ["scripts/lint-public-boundary.mjs"], {
+        cwd: rootPath,
+        env: { ...process.env, PULSE_PUBLIC_BOUNDARY_ROOT: dir },
+        encoding: "utf8",
+      });
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, new RegExp(`docs/${file} contains private-looking example content`));
+      rmSync(join(dir, "docs", file));
     });
   } finally {
     rmSync(dir, { recursive: true, force: true });

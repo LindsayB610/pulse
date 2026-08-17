@@ -3,7 +3,7 @@ import { createPulseDefinition, pulseError, pulseJson, readPulseSnapshot, requir
 
 export default async (request: Request) => {
   try {
-    requirePulseAuthorization(request);
+    await requirePulseAuthorization(request);
     if (request.method === "GET") return pulseJson((await readPulseSnapshot()).pulses);
     return pulseJson({ pulse: await createPulseDefinition(await request.json()) }, 201);
   } catch (error) {

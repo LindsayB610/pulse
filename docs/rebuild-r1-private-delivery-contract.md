@@ -8,11 +8,11 @@ Status: **implemented; awaiting owner review and acceptance.**
 ## Private root
 
 Pulse's real configuration and state live in one absolute private root outside
-the public Pulse and Workshop repositories. On this Workshop computer, that
-root is:
+the public Pulse and Workshop repositories. For example, a macOS installation
+could use:
 
 ```text
-/Users/lindsaybrunner/Documents/workshop-private/pulse/
+/Users/example/Private/pulse/
   .env
   pulses.yaml
   state.json

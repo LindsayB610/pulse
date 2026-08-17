@@ -40,15 +40,15 @@ function pageHead(eyebrow, title, description, action = "") {
   return `<header class="page-head"><div><p class="eyebrow">${eyebrow}</p><h1>${title}</h1><p class="page-description">${description}</p></div>${action}</header>`;
 }
 
-function summary(state = "healthy") {
+function summary(state = "healthy", empty = false) {
   const health = state === "healthy"
     ? `<span class="status-line status-positive"><i class="status-dot"></i>Online</span><div class="summary-note">Checked just now</div>`
     : state === "stale"
       ? `<span class="status-line status-warning"><i class="status-dot"></i>Needs attention</span><div class="summary-note">Last check 18 minutes ago</div>`
       : `<span class="status-line status-danger"><i class="status-dot"></i>Unavailable</span><div class="summary-note">Connection failed</div>`;
   return `<section class="summary-grid" aria-label="Pulse summary">
-    <article class="summary-card"><span class="summary-label">Active reminders</span><div class="summary-value">2</div><div class="summary-note">1 paused</div></article>
-    <article class="summary-card"><span class="summary-label">Next notification</span><div class="summary-value compact">Due now</div><div class="summary-note">Take recycling out</div></article>
+    <article class="summary-card"><span class="summary-label">Active reminders</span><div class="summary-value">${empty ? "0" : "2"}</div><div class="summary-note">${empty ? "No reminders saved" : "1 paused"}</div></article>
+    <article class="summary-card"><span class="summary-label">Next notification</span><div class="summary-value compact">${empty ? "Nothing scheduled" : "Due now"}</div>${empty ? "" : '<div class="summary-note">Take recycling out</div>'}</article>
     <article class="summary-card"><span class="summary-label">Runner health</span><div class="summary-value compact">${health}</div></article>
   </section>`;
 }
@@ -69,7 +69,7 @@ function reminderCard(item) {
 function remindersView({ empty = false, health = "healthy" } = {}) {
   setSidebarHealth(health);
   main.innerHTML = `<div class="content-frame">${pageHead("Persistent reminders", "Reminders", "Set the schedule here. When one is due, your phone keeps asking until you tap Done.", `<a class="button button-primary" href="#/new">${icon("plus")} New reminder</a>`)}
-    ${empty ? summary(health).replace(">2<", ">0<").replace("1 paused", "Nothing scheduled") : summary(health)}
+    ${summary(health, empty)}
     <section aria-labelledby="active-title"><div class="section-heading"><div><h2 id="active-title">Your reminders</h2><p>${empty ? "Ready when you are." : "Ordered by what needs attention next."}</p></div></div>
     ${empty ? `<div class="empty-state"><div class="empty-orbit">${icon("pulse")}</div><h2>No reminders yet</h2><p>Create one persistent reminder and Pulse will keep it on your phone until the occurrence is done.</p><a class="button button-primary" href="#/new">Create your first reminder</a></div>` : `<div class="reminder-list">${reminders.map(reminderCard).join("")}</div>`}</section></div>`;
   bindReminderActions();

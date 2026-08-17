@@ -91,14 +91,15 @@ test("done command completes the only due private occurrence", () => {
   }
 });
 
-test("deployment guide has an explicit success checklist", () => {
+test("deployment guide documents guided ownership, verification, and deletion", () => {
   const guide = read("docs/deploy-runner.md");
 
-  assert.match(guide, /## Success Checklist/);
-  assert.match(guide, /Netlify scheduled functions/);
-  assert.match(guide, /PULSE_NOTIFICATION_ACTION_SECRET/);
-  assert.match(guide, /ntfy delivers Android Done and Snooze actions/);
-  assert.match(guide, /completed occurrence stops repeating/);
+  assert.match(guide, /Guided Netlify deployment/);
+  assert.match(guide, /scheduled function runs every minute/);
+  assert.match(guide, /origin[\s\S]*fingerprint/i);
+  assert.match(guide, /runner-owned/i);
+  assert.match(guide, /Disconnecting Workshop revokes only that Mac/);
+  assert.match(guide, /provider dashboard.*billing/is);
 });
 
 test("docker compose template keeps private runner data outside git and API loopback-only", () => {

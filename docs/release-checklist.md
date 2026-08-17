@@ -1,59 +1,71 @@
 # Release Checklist
 
-Run this checklist before trusting Pulse with real private obligations.
-
-## Code Gates
+## Automated gates
 
 ```sh
 npm test
+npm run test:coverage
+npm run test:theme-render
 npm run typecheck
+npm run typecheck:netlify
 npm run build
+npm run build:plugin
 npm run docs:check
 npm run lint
 npm run format:check
 ```
 
-## Data Safety
+Also run Workshop’s Rust tests and desktop typecheck when the generic managed
+secure-service capability changes. Prove a clean Git consumer can install the
+exact Pulse revision and build both packages.
 
-- Create a backup with `node bin/pulse-state.mjs backup --backup-dir "$PULSE_PRIVATE_ROOT/backups"`.
-- Export state with `node bin/pulse-state.mjs export`.
-- Import the exported file into a disposable state path.
-- Confirm completion history survives restore.
-- Confirm migration tests pass before changing state format.
+## Setup acceptance
 
-## Security
+- New user completes the full guided path without terminal, JSON, folder, env,
+  API-token, or Keychain work.
+- Interrupted pre-pair setup resumes from native state; post-pair setup resumes
+  from authenticated runner status.
+- Invalid origins, redirects, fingerprints, signatures, expired/reused codes,
+  malformed state, and secret-bearing state fail closed.
+- No setup private key, client credential, ntfy token, authorization header, or
+  capability appears in the webview, public config, URL query, logs, or tests.
+- A second Mac receives separate revocable access through a ten-minute one-use
+  invitation.
+- Migration preserves the existing runner data and old connection on failure.
+- Disconnect revokes only the current Mac and clearly says the remote
+  deployment and provider billing remain.
+- Start over is confirmed, names the deployed resources it leaves behind, and
+  cannot strand the user on a pre-pair step after pairing is complete.
+- The setup test is isolated and idempotent; it creates no reminder, occurrence,
+  history item, Done action, or Snooze action.
 
-- Confirm `.env` is not committed.
-- Confirm ntfy topics/tokens are set through private environment variables.
-- Rotate secrets after any accidental log exposure.
-- Keep runner logs private.
-- Review [security-and-privacy.md](security-and-privacy.md).
+## Reminder acceptance
 
-## Privacy Scanner
+Prove `due -> notify -> done -> stop`, manual snooze, two-minute no-action snooze,
+Done overriding an active snooze, and sequence-only ntfy cleanup. A temporary
+cleanup failure must not roll back Done and must retry after five minutes.
 
-Run the public boundary scanner:
+## Data and ownership
 
-```sh
-npm run lint
-```
+- Create a backup, then export/restore a disposable state copy and verify
+  completion history.
+- Confirm public fixtures contain only fictional data and `npm run lint` passes.
+- Confirm the provider account, deployment, ntfy account, and any bill belong
+  to the test user—not the Pulse maintainer.
+- Confirm deletion instructions point to the provider dashboard and do not
+  imply that disconnecting Workshop stops billing.
 
-The privacy scanner must cover public examples, docs, and release docs. Public
-fixtures must use fictional obligations and fake phone numbers only.
+## Security and privacy scanner
 
-## Acceptance
+- Re-run the security boundary tests for pairing, native storage, Keychain,
+  origin pinning, one-use sessions, rollback, and revocation.
+- Run the privacy scanner through `npm run lint` and inspect any exception
+  manually before release.
 
-The release fixture must prove:
+## Human gates
 
-```text
-due -> notify -> done -> stop
-        |
-        +-> snooze stays in the same occurrence sequence
-            and Done deletes only that sequence
-```
-
-Do not release if a due occurrence can be dismissed, snoozed, skipped, or hidden
-without Done.
-
-Also prove that a temporary ntfy deletion failure does not roll back Done, is
-retried after five minutes, and never targets legacy unsequenced messages or a
-different occurrence's sequence.
+Before general release, complete the guided flow on a disposable production
+deployment with Android delivery, then run two unfamiliar-human walkthroughs:
+one moderately technical/non-developer and one lower-confidence user. Record
+stalls, wrong turns, recovery failures, and inaccurate copy. This is the final
+gate that automation cannot honestly replace.

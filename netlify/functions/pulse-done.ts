@@ -3,7 +3,7 @@ import { markPulseDone, pulseError, pulseJson, requirePulseAuthorization } from 
 
 export default async (request: Request, context: Context) => {
   try {
-    requirePulseAuthorization(request);
+    await requirePulseAuthorization(request);
     const form = new URLSearchParams(await request.text());
     const completionNote = form.get("completionNote")?.trim() || undefined;
     return pulseJson(await markPulseDone(context.params.id, completionNote));

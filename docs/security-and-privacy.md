@@ -1,49 +1,60 @@
-# Security And Privacy
+# Security and Privacy
 
-The public repo gives you the Pulse engine. Your private runner deployment owns
-your real obligations, credentials, and completion history.
+The public repository supplies software. Each user’s runner owns their real
+reminders, state, history, notification access, and operating cost.
 
-Never commit:
+## Trust boundaries
 
-- real `pulses.yaml`
-- `.env`
-- ntfy topics and access tokens
-- phone numbers
-- state files
-- backups
-- logs
+- Pulse’s webview receives public setup material and redacted status only.
+- Workshop native storage owns the ephemeral setup private key before pairing.
+- macOS Keychain owns each installation’s separate runner credential.
+- The runner stores credential, invitation, and one-use-capability verifiers as
+  hashes, not recoverable values.
+- The runner’s provider-private store owns the ntfy token and generated action
+  signing material.
+- Netlify’s deploy template receives only a public setup key, topic, ntfy
+  origin, and return value. No credentials enter template URLs or build logs.
 
-Public examples should use fictional obligations only.
+Workshop pins secure requests to the validated HTTPS origin, rejects unsafe or
+private network targets, disallows redirects, limits methods/paths/body sizes
+and timeouts, injects credentials outside the webview, and redacts credentials
+from responses.
 
-## Host Rules
+## Never commit or publish
 
-- Keep `$PULSE_PRIVATE_ROOT` readable only by the deploy user and outside the public checkout.
-- Use a host secret store if your provider offers one.
-- Rotate `PULSE_NTFY_TOKEN` if it appears in logs or shell history.
-- Treat `state.json` as private because it contains completion history.
-- Treat pulse titles as private if they reveal health, family, legal, financial,
-  or other sensitive obligations.
+- real reminder titles or schedules;
+- ntfy topics or tokens;
+- runner/client credentials;
+- `.env`, `pulse.config.json`, state, history, backups, or logs;
+- provider/account identifiers or local personal paths.
 
-## Logs
+Topics and reminder titles can reveal health, family, legal, or financial
+information. Treat them as private even when they are not authentication.
 
-Pulse redacts configured secret env values before persisting notification
-details, but operator logs may still reveal pulse titles and due times. Keep
-runner logs private.
+## Setup security
 
-## Security Review Checklist
+- first-installation challenges expire after two minutes, are rate-limited,
+  allow five failed proofs, and are consumed once;
+- the pairing transcript binds protocol versions, exact origin, challenge,
+  installation id, and deployed-key fingerprint;
+- first-installation bootstrap retires after success;
+- additional-Mac invitations and delivery-secret sessions expire after ten
+  minutes, are origin-bound, stored only as hashes, and work once;
+- the runner-owned secret page removes its fragment immediately and never
+  echoes a saved token;
+- corrupt or secret-bearing setup state fails closed;
+- local pairing failure triggers remote client revocation and Keychain cleanup.
 
-- Real `pulses.yaml` lives outside the public repo.
-- `PULSE_NTFY_TOKEN` and other credentials are supplied by private env.
-- `$PULSE_PRIVATE_ROOT/state.json` is backed up before upgrades.
-- State imports are validated before replacing active state.
-- The runner is reachable only by the operator or trusted private network.
-- Done links or local UI access are not exposed publicly without authentication.
-- Public examples use fictional obligations and fake phone numbers.
-- `npm run lint` passes before release.
+## Logs and operations
 
-## Privacy Scanner Rules
+Pulse redacts configured secrets from persisted notification details, but
+private logs can still reveal titles and due times. Keep provider logs private.
+Rotate any credential that appears in logs, screenshots, shell history, or a
+public issue.
 
-The public boundary scanner checks committed examples and docs for private
-looking obligations, personal names, real-looking local phone fragments, and
-consumer email addresses. Keep the scanner conservative: a false positive is
-better than leaking real obligations or recipient details.
+Disconnecting Workshop revokes one Mac. It does not delete the runner, cancel
+provider billing, or remove reminders. Delete the deployment in the owner’s
+provider account when the service should stop.
+
+Run `npm run lint` before release. The public-boundary scanner rejects private-
+looking data in public examples and documentation.

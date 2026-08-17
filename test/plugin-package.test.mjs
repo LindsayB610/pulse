@@ -4,12 +4,13 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, 
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { test } from "node:test";
-import { createPulseService, createWorkshopSecureServiceRequester, parsePulsePrivateConfig, pulseDefinitionFromForm, workshopPluginDeclaration } from "../plugin/dist/index.js";
+import { createPulseService, createWorkshopSecureServiceRequester, disconnectPulseManagedService, parsePulsePrivateConfig, pulseDefinitionFromForm, workshopPluginDeclaration } from "../plugin/dist/index.js";
 
 const source = readFileSync("plugin/src/index.tsx", "utf8");
 const service = readFileSync("plugin/src/service.ts", "utf8");
 const definition = readFileSync("plugin/src/definition.ts", "utf8");
 const styles = readFileSync("plugin/src/styles.tsx", "utf8");
+const setup = readFileSync("plugin/src/setup-wizard.tsx", "utf8");
 const rootPackage = readFileSync("package.json", "utf8");
 const pluginPackage = readFileSync("plugin/package.json", "utf8");
 const rootLock = readFileSync("package-lock.json", "utf8");
@@ -58,14 +59,17 @@ test("Pulse owns an external planned Workshop plugin without Workshop source imp
   assert.match(source, /status: "ready"/);
   assert.match(source, /request_configured_secure_service/);
   assert.match(source, /Pulse connection/);
-  assert.match(source, /Connect your reminders/);
-  assert.match(source, /Credentials stay in the macOS Keychain and never enter this view/);
+  assert.match(source, /Advanced private-folder connection/);
+  assert.match(setup, /Set up Pulse without becoming its sysadmin/);
+  assert.match(setup, /Quick setup with Netlify/);
+  assert.match(setup, /Connect another compatible runner/);
+  assert.match(`${source}\n${setup}`, /Keychain and never enter this (?:view|page)/);
   assert.match(source, /Keep the important things moving/);
   assert.match(source, /Completion history/);
   assert.match(source, /Android push through ntfy/);
   assert.match(source, /Change folder/);
   assert.doesNotMatch(source, />Reconnect</);
-  assert.doesNotMatch(source, /requestWorkspaceRoot\(undefined\)/);
+  assert.match(source, /requestWorkspaceRoot\(undefined\)/, "a successful migration clears only the obsolete manual folder selection");
   assert.match(styles, /\.pulse-ui__lede--wide \{ max-width: 780px; \}/);
   assert.match(source, /useEffect\(\(\) => \{ void refresh\(\); \}, \[refresh\]\)/);
   for (const file of sourceFilesBelow("plugin/src")) {
@@ -138,6 +142,19 @@ test("plugin uses both generic host commands with the fixed Pulse config file", 
   assert.doesNotMatch(JSON.stringify(calls), /token|authorization|secret/i);
 });
 
+test("managed disconnect asks Workshop to revoke this installation without exposing a credential", async () => {
+  const calls = [];
+  await disconnectPulseManagedService(async (command, args) => {
+    calls.push({ command, args });
+    return { disconnected: true, remoteServicePreserved: true };
+  });
+  assert.deepEqual(calls, [{
+    command: "disconnect_managed_secure_service",
+    args: { serviceId: "pulse-runner", configFile: "pulse.config.json", clientsPath: "/api/setup/clients" },
+  }]);
+  assert.doesNotMatch(JSON.stringify(calls), /credential|authorization|bearer|token/i);
+});
+
 test("public UI fixture provides active, paused, and occurrence-state coverage without private data", () => {
   const root = new URL("../", import.meta.url).pathname;
   const config = readFileSync(join(root, "plugin/fixtures/ui-demo/pulses.yaml"), "utf8");
@@ -156,7 +173,7 @@ test("public setup docs explain the generic Workshop connection without publishi
   assert.match(guide, /pulse\.config\.json/);
   assert.match(guide, /credentialRef/);
   assert.match(guide, /Keychain/);
-  assert.match(guide, /Connect Pulse/);
+  assert.match(guide, /Advanced setup/);
   assert.doesNotMatch(guide, /PULSE_API_TOKEN=[^\n]+/);
   assert.match(integration, /progressive enhancement/i);
   assert.match(integration, /--workshop-canvas/);
@@ -197,9 +214,9 @@ test("a clean consumer can install the Git package and run the plugin prepare bu
     writeFileSync(join(consumer, "package.json"), '{"private":true}\n');
     execFileSync("npm", ["install", `git+file://${source}`], {
       cwd: consumer,
-      env: { ...process.env, npm_config_cache: join(temp, "npm-cache") },
+      env: process.env,
       stdio: "pipe",
-      timeout: 120_000,
+      timeout: 180_000,
     });
 
     assert.ok(existsSync(join(consumer, "node_modules/@marketing-builds/pulse/plugin/dist/index.js")));

@@ -57,6 +57,14 @@ function setControlValue(control, value) {
   control.dispatchEvent(new control.ownerDocument.defaultView.Event("change", { bubbles: true }));
 }
 
+async function waitFor(act, predicate, message) {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    if (predicate()) return;
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
+  }
+  assert.fail(message);
+}
+
 async function mountedPulse(snapshot = fixtureSnapshot, onRouteChange, respond, onWorkspaceRootChange) {
   const { dom, previous } = installDom();
   const React = await import("react");
@@ -130,7 +138,7 @@ test("production Pulse UI exposes route-specific history and settings without cr
     const settingsLede = mounted.dom.window.document.querySelector("#pulse-settings-heading").closest("header").querySelector(".pulse-ui__lede");
     assert.equal(settingsLede.classList.contains("pulse-ui__lede--wide"), true);
     assert.match(text, /Runner is online/);
-    assert.match(text, /Private Pulse folder/);
+    assert.match(text, /Advanced private Pulse folder/);
     assert.match(text, /Android push through ntfy/);
     assert.doesNotMatch(mounted.dom.window.document.documentElement.outerHTML, /authorization|bearer|test-notification-token/i);
   } finally {
@@ -144,7 +152,7 @@ test("connected settings truthfully reports the folder and changes it inline", a
   try {
     await mounted.render("settings");
     const folderCard = [...mounted.dom.window.document.querySelectorAll(".pulse-ui__setting")]
-      .find((card) => card.textContent.includes("Private Pulse folder"));
+      .find((card) => card.textContent.includes("Advanced private Pulse folder"));
     assert.match(folderCard.textContent, /Connected/);
     assert.doesNotMatch(folderCard.textContent, /Reconnect/);
     await mounted.act(async () => {
@@ -161,6 +169,64 @@ test("connected settings truthfully reports the folder and changes it inline", a
     assert.equal(mounted.dom.window.document.querySelector('[aria-label="New Pulse private folder"]'), null);
   } finally {
     await mounted.close();
+  }
+});
+
+test("G6 settings creates a bound additional-Mac invitation and sends isolated tests", async () => {
+  const mounted = await mountedPulse(fixtureSnapshot, undefined, async (entry, snapshot) => {
+    if (entry.method === "GET") return { status: 200, body: snapshot };
+    if (entry.path === "/api/setup/clients") return { status: 201, body: { code: "PULSE-FIXTURE-INVITATION", expiresAt: "2026-08-09T18:10:00.000Z" } };
+    if (entry.path === "/api/setup/test-notification") return { status: 202, body: { accepted: true } };
+    return { status: 400, body: {} };
+  });
+  try {
+    await mounted.render("settings");
+    await mounted.act(async () => { [...mounted.dom.window.document.querySelectorAll("button")].find((candidate) => candidate.textContent === "Add a Mac").click(); });
+    const input = mounted.dom.window.document.querySelector('[aria-label="Other Mac installation id"]');
+    await mounted.act(async () => { setControlValue(input, "installation_second_mac"); });
+    await mounted.act(async () => { input.closest("form").dispatchEvent(new mounted.dom.window.Event("submit", { bubbles: true, cancelable: true })); });
+    assert.deepEqual(mounted.requests.find((entry) => entry.method === "POST" && entry.path === "/api/setup/clients"), {
+      method: "POST",
+      path: "/api/setup/clients",
+      body: { installationId: "installation_second_mac" },
+    });
+    assert.match(mounted.dom.window.document.body.textContent, /PULSE-FIXTURE-INVITATION/);
+    assert.match(mounted.dom.window.document.body.textContent, /expires in ten minutes/i);
+    await mounted.act(async () => { [...mounted.dom.window.document.querySelectorAll("button")].find((candidate) => candidate.textContent === "Send test").click(); });
+    assert.ok(mounted.requests.some((entry) => entry.path === "/api/setup/test-notification"));
+    assert.match(mounted.dom.window.document.body.textContent, /Test sent/);
+  } finally {
+    await mounted.close();
+  }
+});
+
+test("G6 managed disconnect requires explicit confirmation and states that the remote runner remains", async () => {
+  const { dom, previous } = installDom();
+  const React = await import("react");
+  const { act } = React;
+  const { createRoot } = await import("react-dom/client");
+  const { PulseManagementView } = await import("../plugin/dist/index.js");
+  let disconnects = 0;
+  const root = createRoot(dom.window.document.getElementById("app"));
+  const request = async (entry) => entry.path === "/api/setup/clients"
+    ? { status: 200, body: { clients: [], currentClientId: "client_current" } }
+    : { status: 200, body: fixtureSnapshot };
+  try {
+    await act(async () => { root.render(React.createElement(PulseManagementView, { activeRouteId: "settings", request, onDisconnect: async () => { disconnects += 1; } })); });
+    const first = [...dom.window.document.querySelectorAll("button")].find((candidate) => candidate.textContent === "Disconnect this Mac");
+    await act(async () => { first.click(); });
+    assert.equal(disconnects, 0);
+    assert.match(dom.window.document.body.textContent, /provider billing keep running/i);
+    const confirmations = [...dom.window.document.querySelectorAll("button")].filter((candidate) => candidate.textContent === "Disconnect this Mac");
+    await act(async () => { confirmations.at(-1).click(); });
+    assert.equal(disconnects, 1);
+  } finally {
+    await act(async () => { root.unmount(); });
+    dom.window.close();
+    globalThis.window = previous.window;
+    globalThis.document = previous.document;
+    globalThis.CustomEvent = previous.customEvent;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = previous.act;
   }
 });
 
@@ -185,15 +251,76 @@ test("production Pulse UI preserves full definitions while pausing, editing, and
 
     const updatedCard = [...dom.window.document.querySelectorAll("article")].find((article) => article.textContent.includes("Water houseplants"));
     await act(async () => { [...updatedCard.querySelectorAll("button")].find((button) => button.textContent.includes("Edit")).click(); });
-    await act(async () => { dom.window.document.querySelector("[data-action='delete-reminder']").click(); });
+    const deleteTrigger = dom.window.document.querySelector("[data-action='delete-reminder']");
+    deleteTrigger.focus();
+    await act(async () => { deleteTrigger.click(); });
     assert.equal(dom.window.document.querySelector("[role='dialog']")?.getAttribute("aria-modal"), "true");
     assert.match(dom.window.document.querySelector("[role='dialog']").textContent, /Delete “Water houseplants”/);
     assert.equal(dom.window.document.activeElement.textContent, "Keep reminder");
     await act(async () => { dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape" })); });
     assert.equal(dom.window.document.querySelector("[role='dialog']"), null);
+    assert.equal(dom.window.document.activeElement, deleteTrigger, "closing a destructive dialog restores the invoking control");
     await act(async () => { dom.window.document.querySelector("[data-action='delete-reminder']").click(); });
     await act(async () => { [...dom.window.document.querySelector("[role='dialog']").querySelectorAll("button")].find((button) => button.textContent === "Delete reminder").click(); });
     assert.deepEqual(requests.find((entry) => entry.method === "DELETE"), { method: "DELETE", path: "/api/v1/pulses/water-plants" });
+  } finally {
+    await mounted.close();
+  }
+});
+
+test("production network actions are single-flight even when activated twice in one render", async () => {
+  let resolveCreate;
+  let resolveTest;
+  const createPending = new Promise((resolve) => { resolveCreate = resolve; });
+  const testPending = new Promise((resolve) => { resolveTest = resolve; });
+  const mounted = await mountedPulse(fixtureSnapshot, undefined, async (entry, snapshot) => {
+    if (entry.path === "/api/v1/snapshot") return { status: 200, body: snapshot };
+    if (entry.path === "/api/setup/clients" && entry.method === "GET") return { status: 200, body: { clients: [] } };
+    if (entry.path === "/api/v1/pulses" && entry.method === "POST") return createPending;
+    if (entry.path === "/api/setup/test-notification") return testPending;
+    return { status: 200, body: {} };
+  });
+  try {
+    await mounted.render("reminders");
+    await mounted.act(async () => { [...mounted.dom.window.document.querySelectorAll("button")].find((item) => item.textContent.includes("New reminder")).click(); });
+    await mounted.act(async () => { setControlValue(mounted.dom.window.document.querySelector('[aria-label="Reminder name"]'), "Single flight"); });
+    const form = mounted.dom.window.document.querySelector("form");
+    await mounted.act(async () => {
+      form.dispatchEvent(new mounted.dom.window.Event("submit", { bubbles: true, cancelable: true }));
+      form.dispatchEvent(new mounted.dom.window.Event("submit", { bubbles: true, cancelable: true }));
+    });
+    assert.equal(mounted.requests.filter((entry) => entry.path === "/api/v1/pulses" && entry.method === "POST").length, 1);
+    assert.equal([...form.querySelectorAll("button")].find((item) => item.textContent === "Saving…")?.disabled, true);
+    await mounted.act(async () => { resolveCreate({ status: 201, body: {} }); await createPending; });
+
+    await mounted.render("settings");
+    const testButton = [...mounted.dom.window.document.querySelectorAll("button")].find((item) => item.textContent === "Send test");
+    await mounted.act(async () => { testButton.click(); testButton.click(); });
+    assert.equal(mounted.requests.filter((entry) => entry.path === "/api/setup/test-notification").length, 1);
+    assert.equal(testButton.disabled, true);
+    await mounted.act(async () => { resolveTest({ status: 202, body: { accepted: true } }); await testPending; });
+    assert.match(mounted.dom.window.document.body.textContent, /Test sent/);
+  } finally {
+    await mounted.close();
+  }
+});
+
+test("production UI discards malformed snapshot records instead of crashing", async () => {
+  const malformed = {
+    pulses: [null, { id: 17, title: "bad" }, fixturePulses[0]],
+    runnerHealth: { status: "running", checkedAt: "not-a-date" },
+    state: {
+      occurrences: [null, { id: "broken", pulseId: "water-plants", dueAt: null, state: "due" }, fixtureSnapshot.state.occurrences[1]],
+      events: [null, "broken", fixtureSnapshot.state.events[1]],
+    },
+  };
+  const mounted = await mountedPulse(malformed);
+  try {
+    await mounted.render("reminders");
+    assert.match(mounted.dom.window.document.body.textContent, /Water houseplants/);
+    assert.doesNotMatch(mounted.dom.window.document.body.textContent, /bad/);
+    await mounted.render("history");
+    assert.match(mounted.dom.window.document.body.textContent, /Completed on the first notification/);
   } finally {
     await mounted.close();
   }
@@ -237,7 +364,7 @@ test("production UI gives empty and unavailable states an actionable explanation
   }
 });
 
-test("production connection screen explains the private boundary and submits the selected folder", async () => {
+test("production Advanced connection explains the private boundary and submits the selected folder", async () => {
   const { dom, previous } = installDom();
   const React = await import("react");
   const { act } = React;
@@ -247,8 +374,16 @@ test("production connection screen explains the private boundary and submits the
   const root = createRoot(dom.window.document.getElementById("app"));
   try {
     await act(async () => { root.render(React.createElement(WorkshopToolView, { requestWorkspaceRoot: (value) => selected.push(value) })); });
+    assert.match(dom.window.document.body.textContent, /Opening Pulse/);
+    assert.doesNotMatch(dom.window.document.body.textContent, /Advanced private-folder connection/);
+    await waitFor(
+      act,
+      () => /Advanced private-folder connection/.test(dom.window.document.body.textContent),
+      "Advanced connection should appear only after native capability detection finishes",
+    );
     const text = dom.window.document.body.textContent;
-    assert.match(text, /Connect your reminders/);
+    assert.match(text, /Advanced private-folder connection/);
+    assert.match(text, /normal guided setup does not require a folder path/);
     assert.match(text, /Credentials stay in the macOS Keychain/);
     assert.doesNotMatch(text, /New reminder/);
     await act(async () => {
@@ -277,6 +412,11 @@ test("production connection restores the Pulse-owned private folder without hard
   const root = createRoot(dom.window.document.getElementById("app"));
   try {
     await act(async () => { root.render(React.createElement(WorkshopToolView, { requestWorkspaceRoot: (value) => selected.push(value) })); });
+    await waitFor(
+      act,
+      () => Boolean(dom.window.document.querySelector('[aria-label="Pulse private folder"]')),
+      "Remembered manual connection should appear after native capability detection finishes",
+    );
     assert.equal(dom.window.document.querySelector('[aria-label="Pulse private folder"]').value, "/remembered/private/pulse");
     assert.deepEqual(selected, ["/remembered/private/pulse"]);
   } finally {

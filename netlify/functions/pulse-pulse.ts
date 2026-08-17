@@ -3,7 +3,7 @@ import { deletePulseDefinition, pulseError, pulseJson, requirePulseAuthorization
 
 export default async (request: Request, context: Context) => {
   try {
-    requirePulseAuthorization(request);
+    await requirePulseAuthorization(request);
     const id = context.params.id;
     if (request.method === "PATCH") return pulseJson({ pulse: await updatePulseDefinition(id, await request.json()) });
     if (request.method === "DELETE") {

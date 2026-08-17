@@ -27,10 +27,11 @@ test("a real browser resolves standalone fallbacks and a live inherited palette"
     writeFileSync(htmlPath, renderFixture());
 
     const output = execFileSync(chrome, [
-      "--headless=new",
+      "--headless",
       "--disable-gpu",
       "--disable-dev-shm-usage",
       "--no-sandbox",
+      "--no-first-run",
       "--virtual-time-budget=1000",
       "--window-size=1200,900",
       "--dump-dom",
@@ -76,10 +77,11 @@ test("a real browser resolves standalone fallbacks and a live inherited palette"
     });
 
     execFileSync(chrome, [
-      "--headless=new",
+      "--headless",
       "--disable-gpu",
       "--disable-dev-shm-usage",
       "--no-sandbox",
+      "--no-first-run",
       "--window-size=1200,900",
       `--screenshot=${screenshotPath}`,
       `file://${htmlPath}`,

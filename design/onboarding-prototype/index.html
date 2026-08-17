@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Public-safe design prototype for Pulse's guided bring-your-own-service setup."
+    />
+    <title>Pulse guided setup directions</title>
+    <link rel="stylesheet" href="./onboarding.css" />
+  </head>
+  <body class="pulse-setup">
+    <a class="pulse-setup__skip" data-skip-setup href="#setup-root">Skip to setup</a>
+    <div class="pulse-setup__frame">
+      <header class="pulse-setup__hostbar" aria-label="Workshop preview frame">
+        <a class="pulse-setup__back" href="../prototype/index.html#/reminders" aria-label="Back to Pulse prototype">
+          <span aria-hidden="true">←</span>
+          <span>Tools</span>
+        </a>
+        <div class="pulse-setup__brand">
+          <span class="pulse-setup__brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span><strong>Workshop</strong><small>Pulse setup study</small></span>
+        </div>
+        <a class="pulse-setup__compare-link" href="#/compare">Compare directions</a>
+      </header>
+      <main id="setup-root" class="pulse-setup__main" tabindex="-1"></main>
+      <footer class="pulse-setup__hostfooter">
+        <span>Public prototype · fictional data only</span>
+        <span>Pulse owns this experience</span>
+      </footer>
+    </div>
+    <div id="setup-overlay"></div>
+    <p id="setup-live" class="pulse-setup__sr-only" aria-live="polite"></p>
+    <script src="./onboarding.js"></script>
+  </body>
+</html>

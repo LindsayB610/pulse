@@ -4,5 +4,16 @@
 
 [context.production.environment]
   PULSE_NOTIFY_PROVIDER = "ntfy"
-  PULSE_NTFY_SERVER = "https://ntfy.sh"
-  PULSE_PUBLIC_BASE_URL = "https://lindsay-pulse-reminders.netlify.app"
+
+[template.environment]
+  PULSE_SETUP_PUBLIC_KEY = "Public setup key created by Workshop. It is not a secret."
+  PULSE_NTFY_TOPIC = "Private topic you reserved for this Pulse runner."
+  PULSE_NTFY_SERVER = "Notification server origin, normally https://ntfy.sh."
+  PULSE_SETUP_RETURN_URL = "Workshop return address for this one setup. It is not a secret."
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Referrer-Policy = "no-referrer"
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
