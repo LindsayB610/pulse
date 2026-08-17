@@ -316,3 +316,40 @@ test("G6 migration pairs the existing runner without replacing reminder data or 
     globalThis.IS_REACT_ACT_ENVIRONMENT = previous.act;
   }
 });
+
+test("G6 migration shows the native verification gate instead of hiding a Tauri string rejection", async () => {
+  const { dom, previous } = installDom();
+  const React = await import("react");
+  const { act } = React;
+  const { createRoot } = await import("react-dom/client");
+  const { PulseSetupWizard } = await import("../plugin/dist/index.js");
+  const pending = {
+    version: 1, setupId: "setup_migration_error", serviceId: "pulse-runner", configFile: "pulse.config.json",
+    installationId: "installation_migration_error", publicKey: "MCowBQYDK2VwAyEAmigrationErrorPublicKeyMaterial0000",
+    fingerprint: "11:22:33:44:55:66:77:88", suggestedTopic: "unused_migration_topic", state: "migration",
+  };
+  const invoke = async (command, args) => {
+    if (command === "begin_managed_secure_service_setup") return pending;
+    if (command === "update_managed_secure_service_setup") return { ...pending, state: args.state };
+    if (command === "complete_managed_secure_service_setup") {
+      throw "Managed secure service manifest is invalid.";
+    }
+    throw new Error(`Unexpected command ${command}`);
+  };
+  const root = createRoot(dom.window.document.getElementById("app"));
+  try {
+    await act(async () => { root.render(React.createElement(PulseSetupWizard, { invoke, initialState: "migration", onConnected: () => {}, onManualSetup: () => {} })); });
+    const origin = dom.window.document.querySelector('[aria-label="Existing Pulse site address for migration"]');
+    await act(async () => { setInput(origin, "https://existing-pulse.example"); });
+    await act(async () => { origin.closest("form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })); });
+    assert.match(dom.window.document.body.textContent, /Workshop stopped during runner verification: Managed secure service manifest is invalid\. Your previous connection is unchanged\./);
+    assert.doesNotMatch(dom.window.document.body.textContent, /Workshop could not verify the updated runner/);
+  } finally {
+    await act(async () => { root.unmount(); });
+    dom.window.close();
+    globalThis.window = previous.window;
+    globalThis.document = previous.document;
+    globalThis.CustomEvent = previous.customEvent;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = previous.act;
+  }
+});

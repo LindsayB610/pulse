@@ -164,7 +164,10 @@ export function PulseSetupWizard({ invoke, restored, initialState, onConnected, 
       await completePulseManagedSetup(invoke, pending.setupId, endpoint);
       onConnected(await createManagedWorkshopSecureServiceRequester(invoke));
     } catch (caught) {
-      setError(message(caught, "Workshop could not verify the updated runner. Your previous connection is unchanged."));
+      const detail = message(caught, "");
+      setError(detail
+        ? `Workshop stopped during runner verification: ${detail} Your previous connection is unchanged.`
+        : "Workshop could not verify the updated runner. Your previous connection is unchanged.");
     } finally { busyRef.current = false; setBusy(false); }
   };
 
@@ -361,7 +364,9 @@ function SetupGlyph({ kind }: { kind: "laptop" | "link" | "key" | "shield" }): R
 }
 
 function message(value: unknown, fallback: string): string {
-  return value instanceof Error && value.message ? value.message : fallback;
+  if (value instanceof Error && value.message.trim()) return value.message.trim();
+  if (typeof value === "string" && value.trim()) return value.trim();
+  return fallback;
 }
 
 export { netlifyHandoff, normalizeRunnerOrigin };
