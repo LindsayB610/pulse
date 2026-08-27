@@ -1,23 +1,15 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { withHeadlessBrowser } from "../scripts/headless-browser.mjs";
 
-const chromeCandidates = [
-  process.env.PULSE_TEST_CHROME,
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-  "/usr/bin/google-chrome",
-  "/usr/bin/chromium",
-].filter(Boolean);
-const chrome = chromeCandidates.find((candidate) => existsSync(candidate));
 const html = readFileSync(new URL("../design/onboarding-prototype/index.html", import.meta.url), "utf8");
 const css = readFileSync(new URL("../design/onboarding-prototype/onboarding.css", import.meta.url), "utf8");
 const script = readFileSync(new URL("../design/onboarding-prototype/onboarding.js", import.meta.url), "utf8");
 
-test("G1 real browser completes the happy path, validation, retry, modal, and narrow interactions", () => {
-  assert.ok(chrome, "Chrome or Chromium is required for setup interaction proof; set PULSE_TEST_CHROME");
+test("G1 real browser completes the happy path, validation, retry, modal, and narrow interactions", async () => {
   const temp = mkdtempSync(join(tmpdir(), "pulse-guided-setup-interactions-"));
   try {
     writeFileSync(join(temp, "onboarding.css"), css);
@@ -31,28 +23,29 @@ test("G1 real browser completes the happy path, validation, retry, modal, and na
       ),
     );
 
-    for (const width of [1440, 500]) {
-      const output = execFileSync(
-        chrome,
-        [
-          "--headless",
-          "--disable-gpu",
-          "--disable-dev-shm-usage",
-          "--no-sandbox",
-          "--no-first-run",
-          "--hide-scrollbars",
-          "--virtual-time-budget=5000",
-          `--window-size=${width},1800`,
-          "--dump-dom",
-          `file://${join(temp, "index.html")}#/selected/welcome`,
-        ],
-        { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 20_000 },
-      );
-      const match = output.match(/<pre id="setup-browser-interactions">([^<]+)<\/pre>/);
-      assert.ok(match, `${width}px browser run returned interaction evidence`);
-      const result = JSON.parse(match[1].replaceAll("&amp;", "&"));
-      assert.deepEqual(result.failures, [], `${width}px real-browser interactions remain truthful`);
-    }
+    await withHeadlessBrowser(async (browser) => {
+      for (const width of [1440, 500]) {
+        const context = await browser.newContext({ viewport: { width, height: 1800 } });
+        const page = await context.newPage();
+        try {
+          await page.goto(`file://${join(temp, "index.html")}#/selected/welcome`, {
+            waitUntil: "load",
+            timeout: 20_000,
+          });
+          await page.waitForFunction(
+            () => document.querySelector("#setup-browser-interactions")?.textContent?.startsWith("{"),
+            undefined,
+            { timeout: 20_000 },
+          );
+          const evidence = await page.locator("#setup-browser-interactions").textContent();
+          assert.ok(evidence, `${width}px browser run returned interaction evidence`);
+          const result = JSON.parse(evidence);
+          assert.deepEqual(result.failures, [], `${width}px real-browser interactions remain truthful`);
+        } finally {
+          await context.close();
+        }
+      }
+    });
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }

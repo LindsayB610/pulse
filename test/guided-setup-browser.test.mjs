@@ -1,25 +1,16 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { withHeadlessBrowser } from "../scripts/headless-browser.mjs";
 
-const chromeCandidates = [
-  process.env.PULSE_TEST_CHROME,
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-  "/usr/bin/google-chrome",
-  "/usr/bin/chromium",
-  "/usr/bin/chromium-browser",
-].filter(Boolean);
-const chrome = chromeCandidates.find((candidate) => existsSync(candidate));
 const html = readFileSync(new URL("../design/onboarding-prototype/index.html", import.meta.url), "utf8");
 const css = readFileSync(new URL("../design/onboarding-prototype/onboarding.css", import.meta.url), "utf8");
 const script = readFileSync(new URL("../design/onboarding-prototype/onboarding.js", import.meta.url), "utf8");
 const axe = readFileSync(new URL("../node_modules/axe-core/axe.min.js", import.meta.url), "utf8");
 
-test("G1 real-browser layouts have no page overflow or automated accessibility violations", () => {
-  assert.ok(chrome, "Chrome or Chromium is required for setup browser proof; set PULSE_TEST_CHROME");
+test("G1 real-browser layouts have no page overflow or automated accessibility violations", async () => {
   const temp = mkdtempSync(join(tmpdir(), "pulse-guided-setup-browser-"));
   try {
     writeFileSync(join(temp, "onboarding.css"), css);
@@ -87,47 +78,45 @@ test("G1 real-browser layouts have no page overflow or automated accessibility v
         [`journey/state/${state}`, 500, state === "advanced" ? 1800 : 1200],
       ]),
     ];
+    const file = join(temp, "index.html");
+    writeFileSync(file, renderAuditFixture());
     const failures = [];
-    for (const [route, width, height] of comprehensiveRoutes) {
-      const file = join(temp, `${route.replaceAll("/", "-")}.html`);
-      writeFileSync(file, renderAuditFixture());
-      const output = execFileSync(
-        chrome,
-        [
-          "--headless",
-          "--disable-gpu",
-          "--disable-dev-shm-usage",
-          "--no-sandbox",
-          "--no-first-run",
-          "--hide-scrollbars",
-          "--virtual-time-budget=2500",
-          `--window-size=${width},${height}`,
-          "--dump-dom",
-          `file://${file}?audit=1#/${route}`,
-        ],
-        { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 20_000 },
-      );
-      const match = output.match(/<pre id="setup-browser-result">([^<]+)<\/pre>/);
-      if (!match) {
-        failures.push({ context: `${route} at ${width}px`, issue: "missing browser audit evidence" });
-        continue;
+    await withHeadlessBrowser(async (browser) => {
+      const page = await browser.newPage();
+      try {
+        for (const [route, width, height] of comprehensiveRoutes) {
+          await page.setViewportSize({ width, height });
+          await page.goto(`file://${file}?audit=${encodeURIComponent(`${route}-${width}`)}#/${route}`, { waitUntil: "load", timeout: 20_000 });
+          await page.waitForFunction(
+            () => document.querySelector("#setup-browser-result")?.textContent?.startsWith("{"),
+            undefined,
+            { timeout: 20_000 },
+          );
+          const evidence = await page.locator("#setup-browser-result").textContent();
+          if (!evidence) {
+            failures.push({ context: `${route} at ${width}px`, issue: "missing browser audit evidence" });
+            continue;
+          }
+          const result = JSON.parse(evidence);
+          const context = `${route} at ${width}px`;
+          if (result.viewport !== width) failures.push({ context, issue: "wrong viewport", actual: result.viewport });
+          if (result.documentWidth > result.viewport) {
+            failures.push({ context, issue: "page overflow", documentWidth: result.documentWidth });
+          }
+          if (result.unexpectedOverflow.length > 0) {
+            failures.push({ context, issue: "unexpected element overflow", details: result.unexpectedOverflow });
+          }
+          if (result.visualProblems.length > 0) {
+            failures.push({ context, issue: "shared visual contract", details: result.visualProblems });
+          }
+          if (result.violations.length > 0) {
+            failures.push({ context, issue: "axe accessibility", details: result.violations });
+          }
+        }
+      } finally {
+        await page.close();
       }
-      const result = JSON.parse(match[1].replaceAll("&amp;", "&"));
-      const context = `${route} at ${width}px`;
-      if (result.viewport !== width) failures.push({ context, issue: "wrong viewport", actual: result.viewport });
-      if (result.documentWidth > result.viewport) {
-        failures.push({ context, issue: "page overflow", documentWidth: result.documentWidth });
-      }
-      if (result.unexpectedOverflow.length > 0) {
-        failures.push({ context, issue: "unexpected element overflow", details: result.unexpectedOverflow });
-      }
-      if (result.visualProblems.length > 0) {
-        failures.push({ context, issue: "shared visual contract", details: result.visualProblems });
-      }
-      if (result.violations.length > 0) {
-        failures.push({ context, issue: "axe accessibility", details: result.violations });
-      }
-    }
+    });
     assert.deepEqual(failures, [], "all setup routes and viewports pass in one comprehensive browser audit");
   } finally {
     rmSync(temp, { recursive: true, force: true });

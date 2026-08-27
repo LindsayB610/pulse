@@ -1,16 +1,14 @@
 import { parse } from "yaml";
+import {
+  daysOfWeek,
+  parsePulseSchedule,
+  scheduleInstants,
+  type DayOfWeek,
+  type PulseScheduleV2,
+} from "./recurrence.js";
 
-export const daysOfWeek = [
-  "sunday",
-  "monday",
-  "tuesday",
-  "wednesday",
-  "thursday",
-  "friday",
-  "saturday",
-] as const;
-
-export type DayOfWeek = (typeof daysOfWeek)[number];
+export { daysOfWeek } from "./recurrence.js";
+export type { DayOfWeek } from "./recurrence.js";
 
 export type WeeklyPulseSchedule = {
   type: "weekly";
@@ -19,7 +17,7 @@ export type WeeklyPulseSchedule = {
   timezone: string;
 };
 
-export type PulseSchedule = WeeklyPulseSchedule;
+export type PulseSchedule = WeeklyPulseSchedule | PulseScheduleV2;
 
 export type NotificationPolicy = {
   channels: string[];
@@ -36,6 +34,8 @@ export type PulseDefinition = {
   schedule: PulseSchedule;
   instructions?: string;
   notificationPolicy?: NotificationPolicy;
+  definitionRevision?: number;
+  seriesRevision?: number;
 };
 
 export type PulseOccurrence = {
@@ -47,6 +47,10 @@ export type PulseOccurrence = {
   completionNote?: string;
   snoozedAt?: string;
   snoozeCount?: number;
+  seriesRevision?: number;
+  ordinal?: number;
+  final?: boolean;
+  titleSnapshot?: string;
 };
 
 export type OccurrenceAction =
@@ -133,12 +137,16 @@ export function generateNextOccurrence(
   const existingOccurrenceIds = new Set(
     existingOccurrencesForPulse.map((occurrence) => occurrence.id),
   );
+  if ("version" in pulse.schedule && pulse.schedule.version === 2) {
+    return generateNextV2Occurrence(pulse, options, existingOccurrencesForPulse, existingOccurrenceIds);
+  }
+  const legacySchedule = pulse.schedule as WeeklyPulseSchedule;
   const missedDueAt =
     options.includeMissed === true
-      ? missedWeeklyDueAt(pulse.schedule, options.after, existingOccurrencesForPulse, existingOccurrenceIds, pulse.id)
+      ? missedWeeklyDueAt(legacySchedule, options.after, existingOccurrencesForPulse, existingOccurrenceIds, pulse.id)
       : undefined;
   const nextDueAt = missedDueAt ?? nextFutureWeeklyDueAt(
-    pulse.schedule,
+    legacySchedule,
     options.after,
     existingOccurrenceIds,
     pulse.id,
@@ -294,6 +302,16 @@ function parsePulseDefinition(input: unknown): PulseDefinition {
   if (notificationPolicy !== undefined) {
     pulse.notificationPolicy = notificationPolicy;
   }
+  if (input.definitionRevision !== undefined) {
+    pulse.definitionRevision = positiveInteger(input.definitionRevision, "definitionRevision");
+  } else if ("version" in schedule && schedule.version === 2) {
+    pulse.definitionRevision = 1;
+  }
+  if (input.seriesRevision !== undefined) {
+    pulse.seriesRevision = positiveInteger(input.seriesRevision, "seriesRevision");
+  } else if ("version" in schedule && schedule.version === 2) {
+    pulse.seriesRevision = 1;
+  }
 
   return pulse;
 }
@@ -302,6 +320,8 @@ function parseSchedule(input: unknown): PulseSchedule {
   if (!isRecord(input)) {
     throw new Error("Pulse schedule must be an object.");
   }
+
+  if (input.version === 2) return parsePulseSchedule(input);
 
   const type = requiredString(input, "type");
   if (type !== "weekly") {
@@ -369,6 +389,58 @@ function parseDayOfWeek(input: unknown): DayOfWeek {
 
 function assertValidTimezone(timezone: string): void {
   new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format(new Date());
+}
+
+function generateNextV2Occurrence(
+  pulse: PulseDefinition,
+  options: GenerateOccurrenceOptions,
+  existing: PulseOccurrence[],
+  existingIds: Set<string>,
+): PulseOccurrence | null {
+  const schedule = pulse.schedule as PulseScheduleV2;
+  const seriesRevision = pulse.seriesRevision ?? 1;
+  const seriesOccurrences = existing.filter((occurrence) => (occurrence.seriesRevision ?? seriesRevision) === seriesRevision);
+  const generated = seriesOccurrences.length;
+  if (schedule.type === "once" && generated > 0) return null;
+  if (schedule.type !== "once" && schedule.end.type === "count" && generated >= schedule.end.occurrences) return null;
+
+  const allCandidates = scheduleInstants(schedule, { respectCount: false });
+  const afterMs = options.after.getTime();
+  const lastGeneratedAt = seriesOccurrences
+    .map((occurrence) => Date.parse(occurrence.dueAt))
+    .filter(Number.isFinite)
+    .sort((left, right) => right - left)[0] ?? Number.NEGATIVE_INFINITY;
+  const eligible = allCandidates.filter((candidate) => {
+    const dueAt = candidate.toISOString();
+    return candidate.getTime() > lastGeneratedAt
+      && !existingIds.has(v2OccurrenceId(pulse.id, seriesRevision, dueAt));
+  });
+  const candidate = options.includeMissed === true
+    ? [...eligible].filter((value) => value.getTime() <= afterMs).at(-1)
+      ?? eligible.find((value) => value.getTime() > afterMs)
+    : eligible.find((value) => value.getTime() > afterMs);
+  if (!candidate) return null;
+
+  const ordinal = generated + 1;
+  const laterCandidate = allCandidates.find((value) => value.getTime() > candidate.getTime());
+  const final = schedule.type === "once"
+    || schedule.end.type === "count" && ordinal >= schedule.end.occurrences
+    || schedule.end.type === "date" && laterCandidate === undefined;
+  const dueAt = candidate.toISOString();
+  return {
+    id: v2OccurrenceId(pulse.id, seriesRevision, dueAt),
+    pulseId: pulse.id,
+    dueAt,
+    state: "scheduled",
+    seriesRevision,
+    ordinal,
+    final,
+    titleSnapshot: pulse.title,
+  };
+}
+
+function v2OccurrenceId(pulseId: string, seriesRevision: number, dueAt: string): string {
+  return `${pulseId}:s${seriesRevision}:${dueAt}`;
 }
 
 function nextFutureWeeklyDueAt(
@@ -597,4 +669,11 @@ function requiredNumber(input: Record<string, unknown>, key: string): number {
   }
 
   return input[key];
+}
+
+function positiveInteger(input: unknown, key: string): number {
+  if (typeof input !== "number" || !Number.isInteger(input) || input < 1) {
+    throw new Error(`${key} must be a positive integer.`);
+  }
+  return input;
 }

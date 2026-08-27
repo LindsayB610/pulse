@@ -2,6 +2,7 @@ import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync,
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 import { loadPulseDefinitionsFromYaml, type PulseDefinition, type PulseEvent, type PulseOccurrence } from "./model.js";
+import { isPulseNtfySequenceId } from "./ntfy-sequence.js";
 
 export type PrivatePulseConfig = {
   path: string;
@@ -9,9 +10,18 @@ export type PrivatePulseConfig = {
 };
 
 export type PulseState = {
-  version: 1;
+  version: 1 | 2;
   occurrences: PulseOccurrence[];
   events: PulseEvent[];
+  pendingNotificationSequenceCleanups?: PulsePendingNotificationCleanup[];
+};
+
+export type PulsePendingNotificationCleanup = {
+  pulseId: string;
+  occurrenceId: string;
+  sequenceId: string;
+  requestedAt: string;
+  titleSnapshot: string;
 };
 
 export type PulseStateStore = {
@@ -305,8 +315,8 @@ export function parsePulseState(input: unknown): PulseState {
   if (!isRecord(input)) {
     throw new Error("Pulse state must be an object.");
   }
-  if (input.version !== 1) {
-    throw new Error("Pulse state version must be 1.");
+  if (input.version !== 1 && input.version !== 2) {
+    throw new Error("Pulse state version must be 1 or 2.");
   }
   if (!Array.isArray(input.occurrences)) {
     throw new Error("Pulse state occurrences must be an array.");
@@ -315,10 +325,27 @@ export function parsePulseState(input: unknown): PulseState {
     throw new Error("Pulse state events must be an array.");
   }
 
-  return {
-    version: 1,
+  const state: PulseState = {
+    version: input.version,
     occurrences: input.occurrences.map(parseOccurrenceState),
     events: input.events.map(parseEventState),
+  };
+  if (input.pendingNotificationSequenceCleanups !== undefined) {
+    if (!Array.isArray(input.pendingNotificationSequenceCleanups)) throw new Error("Pulse pending notification cleanups must be an array.");
+    state.pendingNotificationSequenceCleanups = input.pendingNotificationSequenceCleanups.map(parsePendingCleanup);
+  }
+  return state;
+}
+
+function parsePendingCleanup(input: unknown): PulsePendingNotificationCleanup {
+  if (!isRecord(input)) throw new Error("Pending notification cleanup must be an object.");
+  if (!isPulseNtfySequenceId(input.sequenceId)) throw new Error("Pending notification cleanup sequenceId is invalid.");
+  return {
+    pulseId: requiredString(input, "cleanup.pulseId"),
+    occurrenceId: requiredString(input, "cleanup.occurrenceId"),
+    sequenceId: input.sequenceId,
+    requestedAt: requiredIsoDate(input, "cleanup.requestedAt"),
+    titleSnapshot: requiredString(input, "cleanup.titleSnapshot"),
   };
 }
 
@@ -359,6 +386,19 @@ function parseOccurrenceState(input: unknown): PulseOccurrence {
       throw new Error("occurrence.snoozeCount must be a positive integer.");
     }
     occurrence.snoozeCount = input.snoozeCount;
+  }
+  if (input.seriesRevision !== undefined) {
+    occurrence.seriesRevision = requiredPositiveInteger(input.seriesRevision, "occurrence.seriesRevision");
+  }
+  if (input.ordinal !== undefined) {
+    occurrence.ordinal = requiredPositiveInteger(input.ordinal, "occurrence.ordinal");
+  }
+  if (input.final !== undefined) {
+    if (typeof input.final !== "boolean") throw new Error("occurrence.final must be a boolean.");
+    occurrence.final = input.final;
+  }
+  if (input.titleSnapshot !== undefined) {
+    occurrence.titleSnapshot = requiredString(input, "occurrence.titleSnapshot");
   }
 
   return occurrence;
@@ -430,6 +470,13 @@ function requiredIsoDate(input: Record<string, unknown>, key: string): string {
   }
 
   return new Date(timestamp).toISOString();
+}
+
+function requiredPositiveInteger(input: unknown, key: string): number {
+  if (typeof input !== "number" || !Number.isInteger(input) || input < 1) {
+    throw new Error(`${key} must be a positive integer.`);
+  }
+  return input;
 }
 
 function requiredString(input: Record<string, unknown>, key: string): string {

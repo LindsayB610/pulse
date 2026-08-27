@@ -1,21 +1,12 @@
-import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { tmpdir } from "node:os";
 import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
+import { closeHeadlessBrowser, launchHeadlessBrowser } from "./headless-browser.mjs";
 
-const execute = promisify(execFile);
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const prototypeRoot = join(repositoryRoot, "design", "onboarding-prototype");
 const outputRoot = join(repositoryRoot, "design", "onboarding-evidence");
-const chrome =
-  process.env.PULSE_TEST_CHROME ||
-  (process.platform === "darwin"
-    ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-    : "google-chrome");
-
 const contentTypes = new Map([
   [".css", "text/css; charset=utf-8"],
   [".html", "text/html; charset=utf-8"],
@@ -209,29 +200,22 @@ function server() {
   });
 }
 
-async function render(baseUrl, job) {
+async function render(browser, baseUrl, job) {
   const target = join(outputRoot, job.file);
-  const profile = await mkdtemp(join(tmpdir(), "pulse-evidence-chrome-"));
-  const args = [
-    "--headless=new",
-    "--hide-scrollbars",
-    "--disable-gpu",
-    "--disable-dev-shm-usage",
-    "--disable-cache",
-    "--no-first-run",
-    "--no-sandbox",
-    "--virtual-time-budget=2500",
-    `--user-data-dir=${profile}`,
-    `--window-size=${job.width},${job.height}`,
-    `--screenshot=${target}`,
-  ];
-  if (job.scale) args.push(`--force-device-scale-factor=${job.scale}`);
-  args.push(`${baseUrl}/?evidence=${encodeURIComponent(job.file)}#/${job.route}`);
+  const context = await browser.newContext({
+    viewport: { width: job.width, height: job.height },
+    deviceScaleFactor: job.scale ?? 1,
+  });
+  const page = await context.newPage();
   try {
-    await execute(chrome, args, { maxBuffer: 1024 * 1024, timeout: 20_000 });
+    await page.goto(`${baseUrl}/?evidence=${encodeURIComponent(job.file)}#/${job.route}`, {
+      waitUntil: "networkidle",
+      timeout: 20_000,
+    });
+    await page.screenshot({ path: target, fullPage: false });
     process.stdout.write(`rendered ${job.file}\n`);
   } finally {
-    await rm(profile, { recursive: true, force: true });
+    await context.close();
   }
 }
 
@@ -242,6 +226,7 @@ await new Promise((resolveListen, reject) => {
   localServer.listen(0, "127.0.0.1", resolveListen);
 });
 
+let browser;
 try {
   const address = localServer.address();
   if (!address || typeof address === "string") throw new Error("Prototype server did not expose a port.");
@@ -253,13 +238,15 @@ try {
     const unknownFiles = [...requestedFiles].filter((file) => !knownFiles.has(file));
     throw new Error(`Unknown evidence target${unknownFiles.length === 1 ? "" : "s"}: ${unknownFiles.join(", ")}`);
   }
+  browser = await launchHeadlessBrowser();
   const workers = Array.from({ length: 3 }, async () => {
     while (queue.length > 0) {
       const job = queue.shift();
-      if (job) await render(baseUrl, job);
+      if (job) await render(browser, baseUrl, job);
     }
   });
   await Promise.all(workers);
 } finally {
+  await closeHeadlessBrowser(browser);
   await new Promise((resolveClose) => localServer.close(resolveClose));
 }

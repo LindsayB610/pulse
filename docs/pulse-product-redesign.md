@@ -195,6 +195,11 @@ Custom path rather than the default mental model.
 
 ### Future recurrence compatibility
 
+> Historical note: this reserved surface was implemented by the bounded
+> recurrence program in August 2026. See
+> [bounded-recurrence-prd.md](bounded-recurrence-prd.md) for the current
+> contract.
+
 Bounded daily/weekly/monthly recurrence is a separate engine feature. The
 form layout reserves a **Repeats** section so that feature can add a cadence,
 an end rule, and last-occurrence warning without rebuilding the entire

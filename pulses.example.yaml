@@ -6,11 +6,18 @@ pulses:
     title: Weekly demo check
     active: true
     schedule:
+      version: 2
       type: weekly
+      interval: 1
+      startDate: "2026-09-06"
+      weekStartsOn: sunday
       daysOfWeek:
         - sunday
       time: "09:00"
       timezone: America/Los_Angeles
+      end:
+        type: count
+        occurrences: 4
     notificationPolicy:
       channels:
         - console

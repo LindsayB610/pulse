@@ -9,14 +9,18 @@ const fixturePulses = [
     title: "Water houseplants",
     active: true,
     instructions: "Use the rain barrel.",
-    schedule: { type: "weekly", daysOfWeek: ["sunday"], time: "09:30", timezone: "America/Los_Angeles" },
+    definitionRevision: 1,
+    seriesRevision: 1,
+    schedule: { version: 2, type: "weekly", interval: 1, startDate: "2026-08-02", weekStartsOn: "sunday", daysOfWeek: ["sunday"], time: "09:30", timezone: "America/Los_Angeles", end: { type: "count", occurrences: 30 } },
     notificationPolicy: { channels: ["ntfy"], repeatEveryMinutes: 30, snoozeEveryMinutes: 30 },
   },
   {
     id: "recycling",
     title: "Take recycling out",
     active: false,
-    schedule: { type: "weekly", daysOfWeek: ["wednesday"], time: "19:00", timezone: "America/Los_Angeles" },
+    definitionRevision: 1,
+    seriesRevision: 1,
+    schedule: { version: 2, type: "weekly", interval: 1, startDate: "2026-08-05", weekStartsOn: "sunday", daysOfWeek: ["wednesday"], time: "19:00", timezone: "America/Los_Angeles", end: { type: "count", occurrences: 12 } },
     notificationPolicy: { channels: ["ntfy"], repeatEveryMinutes: 60, snoozeEveryMinutes: 1440 },
   },
 ];
@@ -26,7 +30,7 @@ const fixtureSnapshot = {
   checkedAt: "2026-08-09T18:00:00.000Z",
   runnerHealth: { status: "running", checkedAt: "2026-08-09T17:59:30.000Z" },
   state: {
-    version: 1,
+    version: 2,
     occurrences: [
       { id: "water-plants:due", pulseId: "water-plants", dueAt: "2026-08-09T18:30:00.000Z", state: "due" },
       { id: "water-plants:done", pulseId: "water-plants", dueAt: "2026-08-02T16:30:00.000Z", state: "done", completedAt: "2026-08-02T16:48:00.000Z" },
@@ -36,6 +40,11 @@ const fixtureSnapshot = {
       { id: "evt:done", pulseId: "water-plants", occurrenceId: "water-plants:done", type: "occurrence_completed", at: "2026-08-02T16:48:00.000Z" },
     ],
   },
+  seriesProgress: {
+    "water-plants": { generated: 2, remaining: 28, complete: false },
+    recycling: { generated: 0, remaining: 12, complete: false },
+  },
+  recurrenceMigration: { required: false, legacyPulseIds: [] },
 };
 
 function installDom() {
@@ -115,7 +124,7 @@ test("mounted production Pulse UI renders a truthful management dashboard and cr
     assert.match(dom.window.document.body.textContent, /Create reminder/);
     await act(async () => {
       setControlValue(dom.window.document.querySelector('[aria-label="Reminder name"]'), "Feed starter");
-      setControlValue(dom.window.document.querySelector('[aria-label="Reminder day"]'), "wednesday");
+      setControlValue(dom.window.document.querySelector('[aria-label="Reminder date"]'), "2026-08-28");
       setControlValue(dom.window.document.querySelector('[aria-label="Reminder time"]'), "18:45");
       setControlValue(dom.window.document.querySelector('[aria-label="Unanswered snooze minutes"]'), "1440");
     });
@@ -123,8 +132,104 @@ test("mounted production Pulse UI renders a truthful management dashboard and cr
     assert.deepEqual(requests.find((entry) => entry.method === "POST"), {
       method: "POST",
       path: "/api/v1/pulses",
-      body: { id: "feed-starter", title: "Feed starter", active: true, schedule: { type: "weekly", daysOfWeek: ["wednesday"], time: "18:45", timezone: "America/Los_Angeles" }, notificationPolicy: { channels: ["ntfy"], repeatEveryMinutes: 5, snoozeEveryMinutes: 1440 } },
+      body: { id: "feed-starter", title: "Feed starter", active: true, schedule: { version: 2, type: "once", date: "2026-08-28", time: "18:45", timezone: "America/Los_Angeles" }, notificationPolicy: { channels: ["ntfy"], repeatEveryMinutes: 5, snoozeEveryMinutes: 1440 } },
     });
+  } finally {
+    await mounted.close();
+  }
+});
+
+test("recurrence is explicit, progressively disclosed, and always bounded", async () => {
+  const mounted = await mountedPulse();
+  try {
+    await mounted.render("reminders");
+    await mounted.act(async () => { [...mounted.dom.window.document.querySelectorAll("button")].find((button) => button.textContent.includes("New reminder")).click(); });
+    const repeat = [...mounted.dom.window.document.querySelectorAll('input[type="checkbox"]')].find((input) => input.closest("label")?.textContent.includes("Repeat this reminder"));
+    assert.equal(repeat.checked, false);
+    assert.equal(mounted.dom.window.document.querySelector("#pulse-recurrence-panel"), null);
+    await mounted.act(async () => { repeat.click(); });
+    assert.equal(repeat.getAttribute("aria-expanded"), "true");
+    assert.ok(mounted.dom.window.document.querySelector("#pulse-recurrence-panel"));
+    const countEnding = mounted.dom.window.document.querySelectorAll('input[name="series-end"]')[0];
+    const dateEnding = mounted.dom.window.document.querySelectorAll('input[name="series-end"]')[1];
+    const countInput = mounted.dom.window.document.querySelector('[aria-label="Number of reminders"]');
+    const endDateInput = mounted.dom.window.document.querySelector('[aria-label="Series end date"]');
+    assert.equal(countInput.disabled, false);
+    assert.equal(endDateInput.disabled, true);
+    await mounted.act(async () => {
+      setControlValue(mounted.dom.window.document.querySelector('[aria-label="Reminder name"]'), "Team check-in");
+      setControlValue(mounted.dom.window.document.querySelector('[aria-label="Reminder date"]'), "2026-08-28");
+      setControlValue(mounted.dom.window.document.querySelector('[aria-label="Repeat frequency"]'), "weekly");
+      mounted.dom.window.document.querySelector('button[aria-label="Monday"]').click();
+      mounted.dom.window.document.querySelector('button[aria-label="Wednesday"]').click();
+      setControlValue(mounted.dom.window.document.querySelector('[aria-label="Number of reminders"]'), "8");
+    });
+    await waitFor(mounted.act, () => /8 reminders/.test(mounted.dom.window.document.querySelector(".pulse-ui__recurrence-preview")?.textContent ?? ""), "debounced recurrence preview becomes visible");
+    assert.equal(mounted.dom.window.document.querySelectorAll(".pulse-ui__preview-dates time").length, 3);
+    assert.ok(endDateInput.value >= "2026-08-28");
+    await mounted.act(async () => { dateEnding.click(); });
+    assert.equal(countInput.disabled, true);
+    assert.equal(endDateInput.disabled, false);
+    assert.ok(endDateInput.value >= "2026-08-28");
+    await mounted.act(async () => { countEnding.click(); });
+    await mounted.act(async () => { mounted.dom.window.document.querySelector("form").dispatchEvent(new mounted.dom.window.Event("submit", { bubbles: true, cancelable: true })); });
+    const created = mounted.requests.find((entry) => entry.method === "POST" && entry.path === "/api/v1/pulses");
+    assert.equal(created.body.schedule.version, 2);
+    assert.equal(created.body.schedule.type, "weekly");
+    assert.equal(created.body.schedule.end.occurrences, 8);
+    assert.ok(created.body.schedule.daysOfWeek.includes("monday"));
+    assert.ok(created.body.schedule.daysOfWeek.includes("wednesday"));
+  } finally {
+    await mounted.close();
+  }
+});
+
+test("legacy reminders block ordinary editing until every schedule is explicitly classified", async () => {
+  const legacySnapshot = {
+    ...fixtureSnapshot,
+    pulses: fixturePulses.map((pulse) => ({ ...pulse, definitionRevision: undefined, seriesRevision: undefined, schedule: { type: "weekly", daysOfWeek: pulse.schedule.daysOfWeek, time: pulse.schedule.time, timezone: pulse.schedule.timezone } })),
+    recurrenceMigration: { required: true, legacyPulseIds: fixturePulses.map((pulse) => pulse.id) },
+  };
+  const mounted = await mountedPulse(legacySnapshot);
+  try {
+    await mounted.render("reminders");
+    assert.match(mounted.dom.window.document.body.textContent, /Finish updating your reminder schedules/);
+    assert.equal([...mounted.dom.window.document.querySelectorAll("button")].some((button) => button.textContent.includes("New reminder")), false);
+    const cards = [...mounted.dom.window.document.querySelectorAll(".pulse-ui__migration-card")];
+    await mounted.act(async () => {
+      cards[0].querySelectorAll('input[type="radio"]')[0].click();
+      cards[1].querySelectorAll('input[type="radio"]')[1].click();
+    });
+    await mounted.act(async () => { [...mounted.dom.window.document.querySelectorAll("button")].find((button) => button.textContent === "Update all schedules").click(); });
+    const request = mounted.requests.find((entry) => entry.path === "/api/v1/migrations/recurrence");
+    assert.deepEqual(request.body.classifications.map((value) => [value.id, value.mode]), [["water-plants", "once"], ["recycling", "repeat"]]);
+  } finally {
+    await mounted.close();
+  }
+});
+
+test("completed sets stay visible but never renew automatically", async () => {
+  const finished = {
+    ...fixtureSnapshot,
+    seriesProgress: { ...fixtureSnapshot.seriesProgress, "water-plants": { generated: 30, remaining: 0, complete: true } },
+    state: { ...fixtureSnapshot.state, occurrences: fixtureSnapshot.state.occurrences.map((occurrence) => occurrence.pulseId === "water-plants" ? { ...occurrence, state: "done", completedAt: occurrence.completedAt ?? "2026-08-09T18:31:00.000Z", final: true } : occurrence) },
+  };
+  const mounted = await mountedPulse(finished);
+  try {
+    await mounted.render("reminders");
+    assert.match(mounted.dom.window.document.body.textContent, /Finished/);
+    await mounted.act(async () => { mounted.dom.window.document.querySelector(".pulse-ui__finished > summary").click(); });
+    assert.match(mounted.dom.window.document.body.textContent, /will not restart by itself/);
+    await mounted.act(async () => { [...mounted.dom.window.document.querySelectorAll("button")].find((button) => button.textContent === "Add another set").click(); });
+    assert.match(mounted.dom.window.document.body.textContent, /Add another set for Water houseplants/);
+    const renewalDate = mounted.dom.window.document.querySelector('[aria-label="Reminder date"]').value;
+    await mounted.act(async () => { mounted.dom.window.document.querySelector("form").dispatchEvent(new mounted.dom.window.Event("submit", { bubbles: true, cancelable: true })); });
+    const confirmation = mounted.dom.window.document.querySelector("[role='dialog']");
+    assert.match(confirmation.textContent, /weekly schedule becomes the active schedule/i);
+    await mounted.act(async () => { [...confirmation.querySelectorAll("button")].find((button) => button.textContent === "Update schedule").click(); });
+    const renewal = mounted.requests.find((entry) => entry.method === "PATCH");
+    assert.equal(renewal.body.schedule.startDate, renewalDate);
+    assert.equal(renewal.body.schedule.end.occurrences, 30);
   } finally {
     await mounted.close();
   }
@@ -253,6 +358,7 @@ test("production Pulse UI preserves full definitions while pausing, editing, and
     await act(async () => { [...refreshedCard.querySelectorAll("button")].find((button) => button.textContent.includes("Edit")).click(); });
     await act(async () => { setControlValue(dom.window.document.querySelector('[aria-label="Reminder time"]'), "10:15"); });
     await act(async () => { dom.window.document.querySelector("form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })); });
+    await act(async () => { [...dom.window.document.querySelector("[role='dialog']").querySelectorAll("button")].find((button) => button.textContent === "Update schedule").click(); });
     assert.deepEqual(requests.filter((entry) => entry.method === "PATCH")[1]?.body, {
       ...fixturePulses[0],
       schedule: { ...fixturePulses[0].schedule, time: "10:15" },
@@ -315,6 +421,31 @@ test("production network actions are single-flight even when activated twice in 
   }
 });
 
+test("confirmed schedule edits remain single-flight under duplicate activation", async () => {
+  let resolveUpdate;
+  const updatePending = new Promise((resolve) => { resolveUpdate = resolve; });
+  const mounted = await mountedPulse(fixtureSnapshot, undefined, async (entry, snapshot) => {
+    if (entry.path === "/api/v1/snapshot") return { status: 200, body: snapshot };
+    if (entry.method === "PATCH") return updatePending;
+    return { status: 200, body: {} };
+  });
+  try {
+    await mounted.render("reminders");
+    const card = [...mounted.dom.window.document.querySelectorAll("article")].find((article) => article.textContent.includes("Water houseplants"));
+    await mounted.act(async () => { [...card.querySelectorAll("button")].find((button) => button.textContent === "Edit").click(); });
+    await mounted.act(async () => { setControlValue(mounted.dom.window.document.querySelector('[aria-label="Reminder time"]'), "10:15"); });
+    await mounted.act(async () => { mounted.dom.window.document.querySelector("form").dispatchEvent(new mounted.dom.window.Event("submit", { bubbles: true, cancelable: true })); });
+    const confirm = [...mounted.dom.window.document.querySelector("[role='dialog']").querySelectorAll("button")]
+      .find((button) => button.textContent === "Update schedule");
+    await mounted.act(async () => { confirm.click(); confirm.click(); });
+    assert.equal(mounted.requests.filter((entry) => entry.method === "PATCH").length, 1);
+    assert.equal(confirm.disabled, true);
+    await mounted.act(async () => { resolveUpdate({ status: 200, body: {} }); await updatePending; });
+  } finally {
+    await mounted.close();
+  }
+});
+
 test("production UI discards malformed snapshot records instead of crashing", async () => {
   const malformed = {
     pulses: [null, { id: 17, title: "bad" }, fixturePulses[0]],
@@ -354,6 +485,50 @@ test("production timing presets map to the saved policy and service errors stay 
     const createRequest = mounted.requests.find((entry) => entry.method === "POST");
     assert.equal(createRequest.body.notificationPolicy.snoozeEveryMinutes, 1440);
     assert.match(mounted.dom.window.document.querySelector("[role='alert']").textContent, /already exists/);
+    assert.equal(mounted.dom.window.document.querySelector('[aria-label="Reminder name"]').value, "Existing reminder", "failed saves retain the draft");
+    assert.equal(mounted.dom.window.document.activeElement, mounted.dom.window.document.querySelector('[aria-label="Reminder name"]'), "field-specific failures focus the relevant control");
+    assert.equal(mounted.dom.window.document.activeElement.getAttribute("aria-invalid"), "true");
+  } finally {
+    await mounted.close();
+  }
+});
+
+test("revision conflicts reload canonical progress without discarding the editable draft", async () => {
+  let snapshotReads = 0;
+  let updateAttempts = 0;
+  const current = structuredClone(fixtureSnapshot);
+  current.pulses[0].definitionRevision = 1;
+  const latest = structuredClone(current);
+  latest.pulses[0].definitionRevision = 2;
+  latest.seriesProgress = { "water-plants": { generated: 2, remaining: 28, complete: false } };
+  const mounted = await mountedPulse(current, undefined, async (entry) => {
+    if (entry.method === "GET" && entry.path === "/api/v1/snapshot") {
+      snapshotReads += 1;
+      return { status: 200, body: snapshotReads === 1 ? current : latest };
+    }
+    if (entry.method === "PATCH") {
+      updateAttempts += 1;
+      return updateAttempts === 1
+        ? { status: 409, body: { error: "Definition revision conflict. Current revision is 2." } }
+        : { status: 200, body: { pulse: entry.body } };
+    }
+    return { status: 200, body: {} };
+  });
+  try {
+    await mounted.render("reminders");
+    const card = [...mounted.dom.window.document.querySelectorAll("article")].find((article) => article.textContent.includes("Water houseplants"));
+    await mounted.act(async () => { [...card.querySelectorAll("button")].find((button) => button.textContent === "Edit").click(); });
+    const name = mounted.dom.window.document.querySelector('[aria-label="Reminder name"]');
+    await mounted.act(async () => { setControlValue(name, "Water every plant"); });
+    const form = mounted.dom.window.document.querySelector("form");
+    await mounted.act(async () => { form.dispatchEvent(new mounted.dom.window.Event("submit", { bubbles: true, cancelable: true })); });
+    assert.equal(snapshotReads, 2, "a conflict refreshes the canonical snapshot");
+    assert.equal(name.value, "Water every plant", "the local draft survives the canonical refresh");
+    assert.match(mounted.dom.window.document.body.textContent, /latest saved progress; your draft is still here/i);
+    await mounted.act(async () => { form.dispatchEvent(new mounted.dom.window.Event("submit", { bubbles: true, cancelable: true })); });
+    const updates = mounted.requests.filter((entry) => entry.method === "PATCH");
+    assert.equal(updates.length, 2);
+    assert.equal(updates[1].body.definitionRevision, 2, "retry uses the refreshed canonical revision");
   } finally {
     await mounted.close();
   }

@@ -33,6 +33,15 @@ function submit(dom, form) {
 
 const wait = (milliseconds = 350) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+async function waitFor(predicate, message, timeoutMs = 1_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await wait(10);
+  }
+  assert.fail(message);
+}
+
 test("G1 skip link focuses setup without escaping the selected journey", async () => {
   const dom = await prototype("selected/phone");
   try {
@@ -164,7 +173,10 @@ test("G1 reporting a missing test revokes Ready until delivery is reconfirmed", 
   );
   try {
     dom.window.document.querySelector("[data-report-missing]").click();
-    await wait(20);
+    await waitFor(
+      () => dom.window.location.hash === "#/selected/state/test-not-received",
+      "the missing-notification action reaches its recovery route",
+    );
     assert.equal(dom.window.location.hash, "#/selected/state/test-not-received");
     assert.equal(
       [...dom.window.document.querySelectorAll(".pulse-setup__companion-list a")].some((link) => /Ready/.test(link.textContent ?? "")),

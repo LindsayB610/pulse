@@ -1,39 +1,51 @@
 {
-  "version": 1,
+  "version": 2,
   "occurrences": [
     {
-      "id": "water-plants:2026-08-02T16:00:00.000Z",
+      "id": "water-plants:s1:2026-08-02T16:00:00.000Z",
       "pulseId": "water-plants",
       "dueAt": "2026-08-02T16:00:00.000Z",
-      "state": "due"
+      "state": "due",
+      "seriesRevision": 1,
+      "ordinal": 1,
+      "final": false,
+      "titleSnapshot": "Water the plants"
     },
     {
-      "id": "submit-timesheet:2026-07-31T23:00:00.000Z",
+      "id": "submit-timesheet:s1:2026-07-31T23:00:00.000Z",
       "pulseId": "submit-timesheet",
       "dueAt": "2026-07-31T23:00:00.000Z",
       "state": "done",
       "completedAt": "2026-07-31T23:18:00.000Z",
-      "completionNote": "Fixture acknowledgement"
+      "completionNote": "Fixture acknowledgement",
+      "seriesRevision": 1,
+      "ordinal": 1,
+      "final": true,
+      "titleSnapshot": "Submit timesheet"
     },
     {
-      "id": "replace-air-filter:2026-08-03T15:30:00.000Z",
+      "id": "replace-air-filter:s1:2026-08-31T15:30:00.000Z",
       "pulseId": "replace-air-filter",
-      "dueAt": "2026-08-03T15:30:00.000Z",
-      "state": "scheduled"
+      "dueAt": "2026-08-31T15:30:00.000Z",
+      "state": "scheduled",
+      "seriesRevision": 1,
+      "ordinal": 1,
+      "final": false,
+      "titleSnapshot": "Replace air filter"
     }
   ],
   "events": [
     {
       "id": "fixture-water-due",
       "pulseId": "water-plants",
-      "occurrenceId": "water-plants:2026-08-02T16:00:00.000Z",
+      "occurrenceId": "water-plants:s1:2026-08-02T16:00:00.000Z",
       "type": "occurrence_became_due",
       "at": "2026-08-02T16:00:00.000Z"
     },
     {
       "id": "fixture-timesheet-done",
       "pulseId": "submit-timesheet",
-      "occurrenceId": "submit-timesheet:2026-07-31T23:00:00.000Z",
+      "occurrenceId": "submit-timesheet:s1:2026-07-31T23:00:00.000Z",
       "type": "occurrence_completed",
       "at": "2026-07-31T23:18:00.000Z",
       "metadata": { "note": "Fixture acknowledgement" }

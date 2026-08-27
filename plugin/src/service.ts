@@ -31,5 +31,6 @@ export function createPulseService(request: SecureServiceRequester) {
     create: (pulse: unknown) => checked(request<{ pulse: unknown }>({ method: "POST", path: pulsePath("/api/v1/pulses"), body: pulse })),
     update: (id: string, pulse: unknown) => checked(request<{ pulse: unknown }>({ method: "PATCH", path: pulsePath(`/api/v1/pulses/${encodeURIComponent(id)}`), body: pulse })),
     remove: (id: string) => checked(request<unknown>({ method: "DELETE", path: pulsePath(`/api/v1/pulses/${encodeURIComponent(id)}`) })),
+    migrateRecurrence: (classifications: unknown[]) => checked(request<unknown>({ method: "POST", path: pulsePath("/api/v1/migrations/recurrence"), body: { classifications } })),
   };
 }

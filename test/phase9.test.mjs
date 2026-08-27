@@ -90,6 +90,27 @@ test("backup restores state and history", () => {
   });
 });
 
+test("v2 export, import, backup, and restore retain series and durable cleanup metadata", () => {
+  withTempDir((dir) => {
+    const statePath = join(dir, "state.json");
+    const store = createJsonPulseStateStore(statePath);
+    const state = {
+      version: 2,
+      occurrences: [{ id: "fixture:s3:2026-08-28T09:00:00.000Z", pulseId: "fixture", dueAt: "2026-08-28T09:00:00.000Z", state: "done", completedAt: "2026-08-28T09:01:00.000Z", seriesRevision: 3, ordinal: 2, final: true, titleSnapshot: "Fixture" }],
+      events: [],
+      pendingNotificationSequenceCleanups: [{ pulseId: "fixture", occurrenceId: "fixture-open", sequenceId: "pulse-DPIYt07Sw9x4urjlPwG83KbIVFcEznMda7KHPBgi7ro", requestedAt: "2026-08-28T09:02:00.000Z", titleSnapshot: "Fixture" }],
+    };
+    store.write(state);
+    const exported = exportPulseState(store);
+    const memory = createMemoryPulseStateStore();
+    assert.deepEqual(importPulseState(memory, exported), state);
+    const backup = createPulseBackup({ statePath, backupDir: join(dir, "backups"), now: new Date("2026-08-28T10:00:00.000Z") });
+    store.write(createEmptyPulseState());
+    restorePulseBackup({ backupPath: backup.path, statePath });
+    assert.deepEqual(store.read(), state);
+  });
+});
+
 test("migrations preserve existing occurrences", () => {
   const legacyState = {
     occurrences: [

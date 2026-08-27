@@ -30,8 +30,10 @@ The product promise is:
 | 9 | Complete | Release hardening | Backup, restore, migrations, security review, and end-to-end acceptance gates are documented and tested. |
 | G0–G7 | Implemented locally | Guided BYO setup | Provider-neutral guided setup, native origin-bound pairing, runner-owned secret capture, migration, repair, additional Macs, disconnect, and operations docs. |
 | G8 | In progress | Production proof | Automated proof is green; disposable Netlify/Android migration and two unfamiliar-human walkthroughs remain before general release. |
+| B0–B6 | Implemented locally | Bounded recurrence | One-time-by-default creation, finite calendar-style series, final warnings, renewal, legacy migration, and documentation. |
+| B7 | Production gate | Bounded recurrence release proof | Local coverage, browser/process, clean-consumer, privacy, and design proof are complete; production-owner migration and live delivery proof remain. |
 
-## Approved Next Feature Program
+## Approved Feature Programs
 
 Guided BYO setup is scoped in
 [docs/guided-byo-setup-plan.md](docs/guided-byo-setup-plan.md). It replaces
@@ -52,14 +54,23 @@ the latest judgment and regression proof are recorded in
 This reduces, but does not replace, the remaining unfamiliar-human gate.
 
 This program does not change reminder recurrence or notification semantics.
-Bounded recurrence remains a separate product build.
+
+Bounded recurrence is implemented locally as a separate product build and is
+specified in
+[docs/bounded-recurrence-prd.md](docs/bounded-recurrence-prd.md). It makes new
+reminders one-time by default, requires explicit finite recurrence, adds daily,
+weekly, monthly, and yearly schedules, and carries the change through engine,
+runner, cloud API, migration, Pulse-owned UI, notifications, documentation, and
+release proof. Its feature implementation and local B7 gates are complete;
+production-owner migration and live delivery remain before release.
 
 ## Pulse Rebuild Program — Historical Record
 
 **Status: R0–R7 are complete for the current weekly-only product.** Follow-on
 product builds are specified separately rather than folded into this historical
-rebuild record. Guided BYO setup is the approved next feature program; bounded
-recurrence remains a separate future build.
+rebuild record. Guided BYO setup and bounded recurrence remain separate feature
+programs; the latter is implemented and locally verified, with production
+migration and live-delivery proof still pending.
 
 ### Product decisions already made
 

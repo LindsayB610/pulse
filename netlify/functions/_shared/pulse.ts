@@ -1,7 +1,7 @@
 import { getStore } from "@netlify/blobs";
 
 import { createNotificationDispatcherFromEnv } from "../../../src/adapters.js";
-import { loadPulseDefinitionsFromYaml, parsePulseDefinitions, applyOccurrenceAction, canCompleteOccurrence, createPulseEvent, type PulseDefinition } from "../../../src/model.js";
+import { loadPulseDefinitionsFromYaml, parsePulseDefinitions, applyOccurrenceAction, canCompleteOccurrence, createPulseEvent, generateNextOccurrence, type PulseDefinition } from "../../../src/model.js";
 import { isPulseNtfySequenceId } from "../../../src/ntfy-sequence.js";
 import { reconcileUntouchedFutureOccurrences, runPulseRunnerTick } from "../../../src/runner.js";
 import {
@@ -21,6 +21,15 @@ import {
   type RunnerSetupState,
 } from "../../../src/setup.js";
 import { createEmptyPulseState, createMemoryPulseStateStore, type PulseState } from "../../../src/storage.js";
+import {
+  canonicalCreateDefinition,
+  canonicalUpdateDefinition,
+  adoptOpenOccurrenceForSeriesConversion,
+  migrateLegacyRecurrence,
+  recurrenceMigrationRequired,
+  seriesProgress,
+  type LegacyRecurrenceClassification,
+} from "../../../src/series.js";
 
 const stateKey = "state.json";
 const lockKey = "state.lock";
@@ -34,6 +43,15 @@ const maximumSetupRequestBytes = 16_384;
 const notificationSetupCookie = "pulse_setup";
 
 type Lease = { owner: string; expiresAt: string };
+
+export type PulseRunnerSnapshot = {
+  pulses: PulseDefinition[];
+  state: PulseState;
+  seriesProgress: Record<string, ReturnType<typeof seriesProgress>>;
+  recurrenceMigration: { required: boolean; legacyPulseIds: string[] };
+  checkedAt: string;
+  runnerHealth: { status: "unknown" | "stale" | "running"; checkedAt: string };
+};
 
 /** The small Blob surface Pulse actually relies on. Keeping it explicit makes
  * the production adapter testable without ever pointing tests at real data. */
@@ -75,57 +93,156 @@ export async function runScheduledPulseTick(now: Date = new Date()): Promise<voi
   });
 }
 
-export async function readPulseSnapshot(): Promise<Record<string, unknown>> {
+export async function readPulseSnapshot(): Promise<PulseRunnerSnapshot> {
   const pulses = await readPulseDefinitions();
   const state = await readState();
   const heartbeat = await store().get(heartbeatKey, { type: "json", consistency: "strong" }) as { checkedAt?: string } | null;
   const checkedAt = heartbeat?.checkedAt ? new Date(heartbeat.checkedAt) : undefined;
   const staleAfterMs = 2 * 60_000;
+  const now = new Date();
   return {
     pulses,
     state,
-    checkedAt: new Date().toISOString(),
+    seriesProgress: Object.fromEntries(pulses.map((pulse) => [pulse.id, seriesProgress(pulse, state.occurrences, now)])),
+    recurrenceMigration: {
+      required: recurrenceMigrationRequired(pulses),
+      legacyPulseIds: pulses.filter((pulse) => !("version" in pulse.schedule) || pulse.schedule.version !== 2).map((pulse) => pulse.id),
+    },
+    checkedAt: now.toISOString(),
     runnerHealth: {
-      status: checkedAt === undefined ? "unknown" : Date.now() - checkedAt.getTime() > staleAfterMs ? "stale" : "running",
-      checkedAt: checkedAt?.toISOString() ?? new Date().toISOString(),
+      status: checkedAt === undefined ? "unknown" : now.getTime() - checkedAt.getTime() > staleAfterMs ? "stale" : "running",
+      checkedAt: checkedAt?.toISOString() ?? now.toISOString(),
     },
   };
 }
 
-export async function createPulseDefinition(input: unknown): Promise<PulseDefinition> {
-  const [pulse] = parsePulseDefinitions([input]);
+export async function createPulseDefinition(input: unknown, now: Date = new Date()): Promise<PulseDefinition> {
+  const [draft] = parsePulseDefinitions([input]);
+  const pulse = canonicalCreateDefinition(draft!, now);
   return withPulseLock(async () => {
     const pulses = await readPulseDefinitions();
+    if (recurrenceMigrationRequired(pulses)) throw new PulseHttpError(409, "Finish updating existing reminder schedules before creating another reminder.");
     if (pulses.some((candidate) => candidate.id === pulse.id)) throw new PulseHttpError(409, "A pulse with that id already exists.");
-    await store().setJSON(definitionsKey, [...pulses, pulse], { onlyIfNew: false });
-    return pulse;
-  });
-}
-
-export async function updatePulseDefinition(id: string, input: unknown, now: Date = new Date()): Promise<PulseDefinition> {
-  const [pulse] = parsePulseDefinitions([input]);
-  if (pulse.id !== id) throw new PulseHttpError(400, "A pulse id cannot be changed.");
-  return withPulseLock(async () => {
-    const pulses = await readPulseDefinitions();
-    const index = pulses.findIndex((candidate) => candidate.id === id);
-    if (index === -1) throw new PulseHttpError(404, "Pulse not found.");
-    pulses[index] = pulse;
-    await store().setJSON(definitionsKey, pulses, { onlyIfNew: false });
-    await withState((stateStore) => {
-      const state = stateStore.read();
-      reconcileUntouchedFutureOccurrences(state, [pulse], now);
-      stateStore.write(state);
+    await commitDefinitionsAndState(pulses, [...pulses, pulse], (state) => {
+      state.version = 2;
+      pulse.seriesRevision = Math.max(0, ...state.occurrences.filter((occurrence) => occurrence.pulseId === pulse.id).map((occurrence) => occurrence.seriesRevision ?? 1)) + 1;
+      const occurrence = generateNextOccurrence(pulse, { after: now, existingOccurrences: state.occurrences, includeMissed: true });
+      if (occurrence) state.occurrences.push(occurrence);
     });
     return pulse;
   });
 }
 
-export async function deletePulseDefinition(id: string): Promise<void> {
+export async function updatePulseDefinition(id: string, input: unknown, now: Date = new Date()): Promise<PulseDefinition> {
+  if (typeof input !== "object" || input === null || Array.isArray(input) || !Number.isInteger((input as Record<string, unknown>).definitionRevision)) {
+    throw new PulseHttpError(400, "Reminder updates require the last observed definition revision.");
+  }
+  const [draft] = parsePulseDefinitions([input]);
+  if (draft!.id !== id) throw new PulseHttpError(400, "A pulse id cannot be changed.");
+  return withPulseLock(async () => {
+    const pulses = await readPulseDefinitions();
+    if (recurrenceMigrationRequired(pulses)) throw new PulseHttpError(409, "Finish updating existing reminder schedules before editing them.");
+    const index = pulses.findIndex((candidate) => candidate.id === id);
+    if (index === -1) throw new PulseHttpError(404, "Pulse not found.");
+    const current = pulses[index]!;
+    let pulse: PulseDefinition;
+    try {
+      pulse = canonicalUpdateDefinition(current, draft!, draft!.definitionRevision!);
+    } catch (error) {
+      if (error instanceof Error && /revision conflict/i.test(error.message)) {
+        throw new PulseHttpError(409, error.message);
+      }
+      throw new PulseHttpError(400, error instanceof Error ? error.message : "Invalid reminder update.");
+    }
+    pulses[index] = pulse;
+    const originalPulses = pulses.map((candidate, candidateIndex) => candidateIndex === index ? current : candidate);
+    await commitDefinitionsAndState(originalPulses, pulses, (state) => {
+      adoptOpenOccurrenceForSeriesConversion(state, current, pulse);
+      reconcileUntouchedFutureOccurrences(state, [pulse], now);
+      const seriesChanged = (current.seriesRevision ?? 1) !== (pulse.seriesRevision ?? 1);
+      const resumed = !current.active && pulse.active;
+      const hasOpenOccurrence = state.occurrences.some((occurrence) => occurrence.pulseId === pulse.id && occurrence.state !== "done");
+      if ((seriesChanged || resumed) && !hasOpenOccurrence) {
+        const occurrence = generateNextOccurrence(pulse, {
+          after: now,
+          existingOccurrences: state.occurrences,
+          includeMissed: seriesChanged,
+        });
+        if (occurrence) state.occurrences.push(occurrence);
+      }
+    });
+    return pulse;
+  });
+}
+
+export async function deletePulseDefinition(id: string, now: Date = new Date()): Promise<void> {
   await withPulseLock(async () => {
     const pulses = await readPulseDefinitions();
     const remaining = pulses.filter((pulse) => pulse.id !== id);
     if (remaining.length === pulses.length) throw new PulseHttpError(404, "Pulse not found.");
-    await store().setJSON(definitionsKey, remaining, { onlyIfNew: false });
+    await commitDefinitionsAndState(pulses, remaining, (state) => {
+      const open = state.occurrences.filter((occurrence) => occurrence.pulseId === id && occurrence.state !== "done");
+      for (const occurrence of open) {
+        const sequenceEvent = [...state.events].reverse().find((event) => event.type === "notification_sent" && event.occurrenceId === occurrence.id && event.metadata?.ok === true && isPulseNtfySequenceId(event.metadata?.sequenceId));
+        const sequenceId = sequenceEvent?.metadata?.sequenceId;
+        if (isPulseNtfySequenceId(sequenceId) && !state.pendingNotificationSequenceCleanups?.some((cleanup) => cleanup.sequenceId === sequenceId)) {
+          state.pendingNotificationSequenceCleanups = [...(state.pendingNotificationSequenceCleanups ?? []), {
+            pulseId: id,
+            occurrenceId: occurrence.id,
+            sequenceId,
+            requestedAt: now.toISOString(),
+            titleSnapshot: occurrence.titleSnapshot ?? pulses.find((pulse) => pulse.id === id)?.title ?? id,
+          }];
+        }
+      }
+      state.occurrences = state.occurrences.filter((occurrence) => occurrence.pulseId !== id || occurrence.state === "done");
+    });
+  });
+}
+
+export async function migratePulseRecurrence(input: unknown, now: Date = new Date()): Promise<Record<string, unknown>> {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) throw new PulseHttpError(400, "Migration request must be an object.");
+  const classifications = (input as { classifications?: unknown }).classifications;
+  if (!Array.isArray(classifications)) throw new PulseHttpError(400, "Migration requires classifications.");
+  return withPulseLock(async () => {
+    const pulses = await readPulseDefinitions();
+    const stateEntry = await store().getWithMetadata(stateKey, { type: "json", consistency: "strong" });
+    const state = createMemoryPulseStateStore((stateEntry?.data as PulseState | undefined) ?? createEmptyPulseState()).read();
+    if (!recurrenceMigrationRequired(pulses)) return { pulses, state };
+    let migrated: ReturnType<typeof migrateLegacyRecurrence>;
+    try {
+      migrated = migrateLegacyRecurrence({
+        pulses,
+        state,
+        classifications: classifications as LegacyRecurrenceClassification[],
+        now,
+      });
+    } catch (error) {
+      throw new PulseHttpError(400, error instanceof Error ? error.message : "Recurrence migration failed.");
+    }
+    const definitionWrite = await store().setJSON(definitionsKey, migrated.pulses, { onlyIfNew: false });
+    if (!definitionWrite.modified) throw new Error("Pulse definitions changed during recurrence migration.");
+    let stateWrite: { modified: boolean };
+    try {
+      stateWrite = stateEntry?.etag === undefined
+        ? await store().setJSON(stateKey, migrated.state, { onlyIfNew: true })
+        : await store().setJSON(stateKey, migrated.state, { onlyIfMatch: stateEntry.etag });
+    } catch (error) {
+      return rollbackDefinitionsOrThrow({
+        previousDefinitions: pulses,
+        restoredMessage: "Pulse state could not be saved during recurrence migration; the original definitions were restored.",
+        failedMessage: "Pulse state could not be saved during recurrence migration and definition rollback failed; stored definitions may require repair.",
+        cause: error,
+      });
+    }
+    if (!stateWrite.modified) {
+      return rollbackDefinitionsOrThrow({
+        previousDefinitions: pulses,
+        restoredMessage: "Pulse state changed during recurrence migration; the original definitions were restored.",
+        failedMessage: "Pulse state changed during recurrence migration and definition rollback failed; stored definitions may require repair.",
+      });
+    }
+    return { pulses: migrated.pulses, state: migrated.state };
   });
 }
 
@@ -692,6 +809,57 @@ async function withState<T>(operation: (stateStore: ReturnType<typeof createMemo
     : await store().setJSON(stateKey, stateStore.read(), { onlyIfMatch: entry.etag });
   if (!write.modified) throw new Error("Pulse state changed unexpectedly while locked.");
   return result;
+}
+
+async function commitDefinitionsAndState(
+  previousDefinitions: PulseDefinition[],
+  nextDefinitions: PulseDefinition[],
+  mutateState: (state: PulseState) => void,
+): Promise<void> {
+  const stateEntry = await store().getWithMetadata(stateKey, { type: "json", consistency: "strong" });
+  const stateStore = createMemoryPulseStateStore((stateEntry?.data as PulseState | undefined) ?? createEmptyPulseState());
+  const nextState = stateStore.read();
+  mutateState(nextState);
+  stateStore.write(nextState);
+  const definitionWrite = await store().setJSON(definitionsKey, nextDefinitions, { onlyIfNew: false });
+  if (!definitionWrite.modified) throw new Error("Pulse definitions changed unexpectedly while locked.");
+  let stateWrite: { modified: boolean };
+  try {
+    stateWrite = stateEntry?.etag === undefined
+      ? await store().setJSON(stateKey, stateStore.read(), { onlyIfNew: true })
+      : await store().setJSON(stateKey, stateStore.read(), { onlyIfMatch: stateEntry.etag });
+  } catch (error) {
+    return rollbackDefinitionsOrThrow({
+      previousDefinitions,
+      restoredMessage: "Pulse state could not be saved; reminder definitions were restored.",
+      failedMessage: "Pulse state could not be saved and definition rollback failed; stored reminder definitions may require repair.",
+      cause: error,
+    });
+  }
+  if (stateWrite.modified) return;
+  return rollbackDefinitionsOrThrow({
+    previousDefinitions,
+    restoredMessage: "Pulse state changed unexpectedly; reminder definitions were restored.",
+    failedMessage: "Pulse state changed unexpectedly and definition rollback failed; stored reminder definitions may require repair.",
+  });
+}
+
+async function rollbackDefinitionsOrThrow(input: {
+  previousDefinitions: PulseDefinition[];
+  restoredMessage: string;
+  failedMessage: string;
+  cause?: unknown;
+}): Promise<never> {
+  const causeDetail = input.cause === undefined
+    ? ""
+    : ` Cause: ${input.cause instanceof Error ? input.cause.message : String(input.cause)}`;
+  let restored = false;
+  try {
+    restored = (await store().setJSON(definitionsKey, input.previousDefinitions, { onlyIfNew: false })).modified;
+  } catch {
+    restored = false;
+  }
+  throw new Error(`${restored ? input.restoredMessage : input.failedMessage}${causeDetail}`);
 }
 
 async function withPulseLock<T>(operation: () => Promise<T>): Promise<T> {

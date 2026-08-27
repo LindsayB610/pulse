@@ -5,7 +5,10 @@ export default async (request: Request) => {
   try {
     await requirePulseAuthorization(request);
     if (request.method === "GET") return pulseJson((await readPulseSnapshot()).pulses);
-    return pulseJson({ pulse: await createPulseDefinition(await request.json()) }, 201);
+    const pulse = await createPulseDefinition(await request.json());
+    const snapshot = await readPulseSnapshot();
+    const nextOccurrence = snapshot.state.occurrences.find((occurrence) => occurrence.pulseId === pulse.id && occurrence.state !== "done");
+    return pulseJson({ pulse, nextOccurrence }, 201);
   } catch (error) {
     return pulseError(error);
   }

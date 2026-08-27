@@ -1,23 +1,12 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { pulseStyles } from "../plugin/dist/styles.js";
+import { withHeadlessBrowser } from "../scripts/headless-browser.mjs";
 
-const chromeCandidates = [
-  process.env.PULSE_TEST_CHROME,
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-  "/usr/bin/google-chrome",
-  "/usr/bin/chromium",
-  "/usr/bin/chromium-browser",
-].filter(Boolean);
-
-const chrome = chromeCandidates.find((candidate) => existsSync(candidate));
-
-test("a real browser resolves standalone fallbacks and a live inherited palette", () => {
-  assert.ok(chrome, "Chrome or Chromium is required for the Pulse visual contract test; set PULSE_TEST_CHROME when it is installed elsewhere");
+test("a real browser resolves standalone fallbacks and a live inherited palette", async () => {
   const evidenceDirectory = process.env.PULSE_THEME_EVIDENCE_DIR;
   const temp = evidenceDirectory || mkdtempSync(join(tmpdir(), "pulse-theme-render-"));
   if (evidenceDirectory) mkdirSync(temp, { recursive: true });
@@ -26,20 +15,18 @@ test("a real browser resolves standalone fallbacks and a live inherited palette"
     const screenshotPath = join(temp, "theme.png");
     writeFileSync(htmlPath, renderFixture());
 
-    const output = execFileSync(chrome, [
-      "--headless",
-      "--disable-gpu",
-      "--disable-dev-shm-usage",
-      "--no-sandbox",
-      "--no-first-run",
-      "--virtual-time-budget=1000",
-      "--window-size=1200,900",
-      "--dump-dom",
-      `file://${htmlPath}`,
-    ], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 15_000 });
-    const match = output.match(/<pre id="pulse-theme-result">([^<]+)<\/pre>/);
-    assert.ok(match, "browser render must publish resolved style evidence");
-    const result = JSON.parse(match[1].replaceAll("&amp;", "&"));
+    const result = await withHeadlessBrowser(async (browser) => {
+      const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+      try {
+        await page.goto(`file://${htmlPath}`, { waitUntil: "load", timeout: 15_000 });
+        const evidence = await page.locator("#pulse-theme-result").textContent();
+        assert.ok(evidence, "browser render must publish resolved style evidence");
+        await page.screenshot({ path: screenshotPath });
+        return JSON.parse(evidence);
+      } finally {
+        await page.close();
+      }
+    });
 
     assert.deepEqual(result.standalone, {
       canvas: "rgb(0, 0, 0)",
@@ -80,16 +67,6 @@ test("a real browser resolves standalone fallbacks and a live inherited palette"
       formGap: 24,
     });
 
-    execFileSync(chrome, [
-      "--headless",
-      "--disable-gpu",
-      "--disable-dev-shm-usage",
-      "--no-sandbox",
-      "--no-first-run",
-      "--window-size=1200,900",
-      `--screenshot=${screenshotPath}`,
-      `file://${htmlPath}`,
-    ], { stdio: "pipe", timeout: 15_000 });
     assert.ok(statSync(screenshotPath).size > 10_000, "visual contract must produce a real browser screenshot");
   } finally {
     if (!evidenceDirectory) rmSync(temp, { recursive: true, force: true });

@@ -410,6 +410,41 @@ test("runner self-heals stale future open occurrences by retaining the earliest"
   assert.deepEqual(store.read().occurrences.map((occurrence) => occurrence.id), ["weekly-demo-check:2026-08-09T16:00:00.000Z"]);
 });
 
+test("runner self-healing never lets an untouched cadence slot replace a snoozed active obligation", async () => {
+  const snoozed = {
+    id: "weekly-demo-check:active-snooze",
+    pulseId: "weekly-demo-check",
+    dueAt: "2026-08-16T16:30:00.000Z",
+    state: "scheduled",
+    snoozedAt: "2026-08-09T16:00:00.000Z",
+    snoozeCount: 1,
+  };
+  const staleFutureSlot = {
+    id: "weekly-demo-check:stale-cadence-slot",
+    pulseId: "weekly-demo-check",
+    dueAt: "2026-08-16T16:00:00.000Z",
+    state: "scheduled",
+  };
+  const staleDueDuplicate = {
+    id: "weekly-demo-check:stale-due-duplicate",
+    pulseId: "weekly-demo-check",
+    dueAt: "2026-08-09T16:00:00.000Z",
+    state: "due",
+  };
+  const state = createEmptyPulseState();
+  state.occurrences.push(snoozed, staleFutureSlot, staleDueDuplicate);
+  const store = createMemoryPulseStateStore(state);
+
+  await runPulseRunnerTick({
+    now: new Date("2026-08-09T16:01:00.000Z"),
+    pulses: [weeklyPulse],
+    stateStore: store,
+    notifier: createFakeNotifier(),
+  });
+
+  assert.deepEqual(store.read().occurrences, [snoozed]);
+});
+
 test("runner logs failed notification attempts and persists due state", async () => {
   const state = createEmptyPulseState();
   state.occurrences.push({

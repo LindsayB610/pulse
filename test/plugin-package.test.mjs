@@ -93,7 +93,9 @@ test("Pulse owns an external planned Workshop plugin without Workshop source imp
 });
 
 test("the public root and distributable plugin declare the repository MIT license", () => {
-  assert.equal(JSON.parse(rootPackage).license, "MIT");
+  const manifest = JSON.parse(rootPackage);
+  assert.equal(manifest.license, "MIT");
+  assert.deepEqual(manifest.files, ["bin", "dist", "plugin/dist"], "the Git dependency ships runtime artifacts, not tests or design evidence");
   assert.equal(JSON.parse(pluginPackage).license, "MIT");
   assert.match(license, /^MIT License\n/);
   assert.match(license, /Copyright \(c\) 2026 Lindsay Brunner/);
@@ -117,11 +119,11 @@ test("built plugin validates private metadata and never puts credentials in serv
   assert.throws(() => parsePulsePrivateConfig({ version: 1, endpoint: "https://pulse.example/api", credentialRef: "x" }), /origin/);
   const requests = [];
   const service = createPulseService(async (request) => { requests.push(request); return { status: 200, body: {} }; });
-  await service.create(pulseDefinitionFromForm({ title: "Weekly reminder", day: "sunday", time: "09:30", timezone: "America/Los_Angeles" }));
+  await service.create(pulseDefinitionFromForm({ title: "One-time reminder", date: "2026-08-30", time: "09:30", timezone: "America/Los_Angeles" }));
   await service.snapshot();
   await service.update("weekly/reminder", { active: false });
   await service.remove("weekly/reminder");
-  assert.deepEqual(requests[0], { method: "POST", path: "/api/v1/pulses", body: { id: "weekly-reminder", title: "Weekly reminder", active: true, schedule: { type: "weekly", daysOfWeek: ["sunday"], time: "09:30", timezone: "America/Los_Angeles" }, notificationPolicy: { channels: ["ntfy"], repeatEveryMinutes: 5, snoozeEveryMinutes: 30 } } });
+  assert.deepEqual(requests[0], { method: "POST", path: "/api/v1/pulses", body: { id: "one-time-reminder", title: "One-time reminder", active: true, schedule: { version: 2, type: "once", date: "2026-08-30", time: "09:30", timezone: "America/Los_Angeles" }, notificationPolicy: { channels: ["ntfy"], repeatEveryMinutes: 5, snoozeEveryMinutes: 30 } } });
   assert.equal(workshopPluginDeclaration.status, "ready");
   assert.deepEqual(requests.slice(1).map((request) => [request.method, request.path]), [["GET", "/api/v1/snapshot"], ["PATCH", "/api/v1/pulses/weekly%2Freminder"], ["DELETE", "/api/v1/pulses/weekly%2Freminder"]]);
 });

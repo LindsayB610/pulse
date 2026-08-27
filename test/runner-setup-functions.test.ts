@@ -115,7 +115,7 @@ test("G2 Netlify setup endpoints persist pairing atomically, retain legacy auth,
       headers: { authorization: `Bearer ${paired.credential}` },
       body: JSON.stringify({
         id: "fixture-reminder", title: "Fixture reminder", active: true,
-        schedule: { type: "weekly", daysOfWeek: ["sunday"], time: "09:30", timezone: "America/Los_Angeles" },
+        schedule: { version: 2, type: "weekly", interval: 1, startDate: "2026-08-09", weekStartsOn: "sunday", daysOfWeek: ["sunday"], time: "09:30", timezone: "America/Los_Angeles", end: { type: "count", occurrences: 30 } },
         notificationPolicy: { channels: ["ntfy"], repeatEveryMinutes: 5, snoozeEveryMinutes: 30 },
       }),
     }));

@@ -63,7 +63,7 @@ export type {
   WeeklyPulseSchedule,
 } from "./model.js";
 
-export type { PrivatePulseConfig, PulseEnvConfig, PulseState, PulseStateStore } from "./storage.js";
+export type { PrivatePulseConfig, PulseEnvConfig, PulsePendingNotificationCleanup, PulseState, PulseStateStore } from "./storage.js";
 export type { PulseReleaseReadinessResult } from "./release.js";
 export type {
   ConsoleNotificationWriter,
@@ -84,6 +84,32 @@ export type {
 } from "./runner.js";
 export type { PulseRunnerHealth } from "./health.js";
 export { notificationActionOccurrenceId } from "./notification-actions.js";
+export {
+  canonicalCreateDefinition,
+  canonicalUpdateDefinition,
+  migrateLegacyRecurrence,
+  recurrenceMigrationRequired,
+  seriesProgress,
+} from "./series.js";
+export type { LegacyRecurrenceClassification, LegacyRecurrenceMigrationInput, SeriesProgress } from "./series.js";
+export {
+  MAX_SERIES_OCCURRENCES,
+  MAX_SERIES_YEARS,
+  parsePulseSchedule,
+  previewSchedule,
+  resolveZonedLocalTime,
+  scheduleInstants,
+  scheduleSummary,
+} from "./recurrence.js";
+export type {
+  DailySchedule,
+  MonthlySchedule,
+  OnceSchedule,
+  PulseScheduleV2,
+  RecurrenceEnd,
+  WeeklySchedule,
+  YearlySchedule,
+} from "./recurrence.js";
 export { isPulseNtfySequenceId, ntfySequenceIdForOccurrence } from "./ntfy-sequence.js";
 export {
   assertDeploymentAdapter,

@@ -1,7 +1,8 @@
 # Backup And Restore
 
 Pulse state is small but important. It records scheduled occurrences,
-notification attempts, and completion history.
+notification attempts, bounded-series revisions/progress, durable notification
+cleanup work, and completion history.
 
 Set `PULSE_PRIVATE_ROOT` to your host's absolute private directory outside the
 public checkout before using these commands. For example:

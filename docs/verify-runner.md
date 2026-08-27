@@ -9,7 +9,8 @@ checkout before running the command examples.
 
 1. Copy [../examples/forced-test-pulse.yaml](../examples/forced-test-pulse.yaml)
    to your private `pulses.yaml`.
-2. Change `daysOfWeek` and `time` so the pulse is due a few minutes from now.
+2. Change the one-time `date` and `time` so the pulse is due a few minutes from
+   now in the saved timezone.
 3. Set `channels: [console]` for a local smoke or `channels: [ntfy]` for an
    Android push smoke.
 4. Start the runner.
@@ -31,8 +32,8 @@ checkout before running the command examples.
 8. Confirm that occurrence's notification chain disappears from ntfy, no more
    notifications are sent for it, and completion history is present in
    `state.json`.
-9. Confirm other Pulse notifications and the saved recurring Pulse definition
-   remain intact.
+9. Confirm other Pulse notifications and definitions remain intact. The forced
+   one-time definition moves to Finished and does not schedule itself again.
 
 ## Done fallback command
 

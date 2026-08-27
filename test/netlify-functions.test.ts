@@ -30,7 +30,7 @@ const basePulse = (id: string, snoozeEveryMinutes?: number) => ({
   id,
   title: `Reminder ${id}`,
   active: true,
-  schedule: { type: "weekly", daysOfWeek: ["sunday"], time: "09:30", timezone: "America/Los_Angeles" },
+  schedule: { version: 2, type: "weekly", interval: 1, startDate: "2026-08-09", weekStartsOn: "sunday", daysOfWeek: ["sunday"], time: "09:30", timezone: "America/Los_Angeles", end: { type: "count", occurrences: 30 } },
   notificationPolicy: {
     channels: ["ntfy"],
     repeatEveryMinutes: 30,
@@ -39,7 +39,7 @@ const basePulse = (id: string, snoozeEveryMinutes?: number) => ({
 });
 
 test("Netlify functions use authenticated Blob-backed definitions and preserve concurrent writes", async (context) => {
-  context.mock.timers.enable({ apis: ["Date"], now: new Date("2026-08-09T16:50:00.000Z") });
+  context.mock.timers.enable({ apis: ["Date"], now: new Date("2026-08-09T16:20:00.000Z") });
   const keys = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]);
   const publicKey = Buffer.from(await crypto.subtle.exportKey("spki", keys.publicKey)).toString("base64url");
   const envNames = ["CONTEXT", "URL", "PULSE_SETUP_PUBLIC_KEY", "PULSE_API_TOKEN", "PULSE_NOTIFY_PROVIDER", "PULSE_NTFY_SERVER", "PULSE_NTFY_TOPIC", "PULSE_NTFY_TOKEN", "PULSE_PUBLIC_BASE_URL", "PULSE_NOTIFICATION_ACTION_SECRET"] as const;
@@ -77,7 +77,9 @@ test("Netlify functions use authenticated Blob-backed definitions and preserve c
     assert.equal((await pulsesHandler(new Request("https://pulse.test/api/v1/pulses"))).status, 401);
     const created = await pulsesHandler(authorized("https://pulse.test/api/v1/pulses", { method: "POST", body: JSON.stringify(basePulse("first")) }));
     assert.equal(created.status, 201);
-    assert.equal((await created.json()).pulse.id, "first");
+    const createdBody = await created.json();
+    assert.equal(createdBody.pulse.id, "first");
+    assert.equal(createdBody.nextOccurrence.pulseId, "first");
 
     await Promise.all([
       pulsesHandler(authorized("https://pulse.test/api/v1/pulses", { method: "POST", body: JSON.stringify(basePulse("second", 1440)) })),
@@ -86,7 +88,9 @@ test("Netlify functions use authenticated Blob-backed definitions and preserve c
     const snapshot = await snapshotHandler(authorized("https://pulse.test/api/v1/snapshot"));
     assert.deepEqual((await snapshot.json()).pulses.map((pulse: { id: string }) => pulse.id).sort(), ["first", "second", "third"]);
 
-    const updated = await pulseHandler(authorized("https://pulse.test/api/v1/pulses/first", { method: "PATCH", body: JSON.stringify({ ...basePulse("first"), active: false }) }), { params: { id: "first" } } as never);
+    const missingRevision = await pulseHandler(authorized("https://pulse.test/api/v1/pulses/first", { method: "PATCH", body: JSON.stringify({ ...basePulse("first"), active: false }) }), { params: { id: "first" } } as never);
+    assert.equal(missingRevision.status, 400);
+    const updated = await pulseHandler(authorized("https://pulse.test/api/v1/pulses/first", { method: "PATCH", body: JSON.stringify({ ...basePulse("first"), active: false, definitionRevision: createdBody.pulse.definitionRevision, seriesRevision: createdBody.pulse.seriesRevision }) }), { params: { id: "first" } } as never);
     assert.equal((await updated.json()).pulse.active, false);
     const removed = await pulseHandler(authorized("https://pulse.test/api/v1/pulses/third", { method: "DELETE" }), { params: { id: "third" } } as never);
     assert.equal(removed.status, 204);
@@ -128,7 +132,9 @@ test("Netlify functions use authenticated Blob-backed definitions and preserve c
     assert.equal(beforeScheduleEdit?.dueAt, "2026-08-16T16:30:00.000Z");
     await updatePulseDefinition("second", {
       ...basePulse("second", 1440),
-      schedule: { type: "weekly", daysOfWeek: ["sunday"], time: "08:50", timezone: "America/Los_Angeles" },
+      definitionRevision: 1,
+      seriesRevision: 1,
+      schedule: { version: 2, type: "weekly", interval: 1, startDate: "2026-08-09", weekStartsOn: "sunday", daysOfWeek: ["sunday"], time: "08:50", timezone: "America/Los_Angeles", end: { type: "count", occurrences: 30 } },
     }, new Date("2026-08-09T20:00:00.000Z"));
     const afterScheduleEdit = await readPulseSnapshot();
     const rescheduled = afterScheduleEdit.state.occurrences.find((occurrence: { pulseId: string; state: string }) => occurrence.pulseId === "second" && occurrence.state === "scheduled");

@@ -45,6 +45,13 @@ Prove `due -> notify -> done -> stop`, manual snooze, two-minute no-action snooz
 Done overriding an active snooze, and sequence-only ntfy cleanup. A temporary
 cleanup failure must not roll back Done and must retry after five minutes.
 
+Also prove one-time default behavior and a two-occurrence series for daily,
+weekly, monthly, and yearly cadence. Confirm the three/two/final warning copy,
+one-open-occurrence rule, pause/resume without backlog, explicit renewal,
+named deletion with retained history, and all-or-nothing legacy migration.
+Review the recurrence editor at desktop, narrow, 200% zoom, inherited theme,
+and standalone fallback.
+
 ## Data and ownership
 
 - Create a backup, then export/restore a disposable state copy and verify

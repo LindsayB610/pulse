@@ -1,5 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { daysOfWeek, pulseDefinitionFromForm } from "./definition.js";
+import {
+  daysOfWeek,
+  defaultReminderDate,
+  localeWeekStartsOn,
+  monthlyRuleLabels,
+  pulseDefinitionFromForm,
+  recurrenceDefaults,
+  recurrencePreview,
+  recurrenceSummary,
+  type Frequency,
+} from "./definition.js";
 import { createPulseService } from "./service.js";
 import type { SecureServiceRequester } from "./service.js";
 import { pulseStyles } from "./styles.js";
@@ -53,17 +63,21 @@ type PulseDefinition = {
   title: string;
   active: boolean;
   instructions?: string;
-  schedule?: { type?: string; daysOfWeek?: string[]; time?: string; timezone?: string };
+  schedule?: { version?: number; type?: string; date?: string; startDate?: string; interval?: number; daysOfWeek?: string[]; weekStartsOn?: string; time?: string; timezone?: string; end?: { type?: string; occurrences?: number; date?: string }; rule?: { type?: string; day?: number | string; ordinal?: number | string; missingDate?: string }; month?: number; day?: number };
   notificationPolicy?: { channels?: string[]; repeatEveryMinutes?: number; snoozeEveryMinutes?: number };
+  definitionRevision?: number;
+  seriesRevision?: number;
   [key: string]: unknown;
 };
-type PulseOccurrence = { id: string; pulseId: string; dueAt: string; state: string; completedAt?: string };
+type PulseOccurrence = { id: string; pulseId: string; dueAt: string; state: string; completedAt?: string; snoozeCount?: number; ordinal?: number; final?: boolean; titleSnapshot?: string; seriesRevision?: number };
 type PulseEvent = { occurrenceId?: string; type?: string };
 type PulseSnapshot = {
   pulses: PulseDefinition[];
   checkedAt?: string;
   runnerHealth?: { status?: string; checkedAt?: string };
   state: { occurrences: PulseOccurrence[]; events: PulseEvent[] };
+  seriesProgress?: Record<string, { generated: number; remaining?: number; endsOn?: string; complete: boolean }>;
+  recurrenceMigration?: { required: boolean; legacyPulseIds: string[] };
 };
 
 const routes: Array<{ id: RouteId; label: string }> = [
@@ -104,6 +118,8 @@ function readSnapshot(body: unknown): PulseSnapshot {
     pulses: Array.isArray(value.pulses) ? value.pulses.filter((pulse): pulse is PulseDefinition => Boolean(pulse && typeof pulse.id === "string" && typeof pulse.title === "string")) : [],
     checkedAt: typeof value.checkedAt === "string" ? value.checkedAt : undefined,
     runnerHealth: value.runnerHealth && typeof value.runnerHealth === "object" ? value.runnerHealth : undefined,
+    seriesProgress: value.seriesProgress && typeof value.seriesProgress === "object" ? value.seriesProgress : undefined,
+    recurrenceMigration: value.recurrenceMigration && typeof value.recurrenceMigration === "object" ? value.recurrenceMigration : undefined,
     state: {
       occurrences: Array.isArray(value.state?.occurrences) ? value.state.occurrences.filter((occurrence): occurrence is PulseOccurrence => Boolean(
         occurrence && typeof occurrence.id === "string" && typeof occurrence.pulseId === "string" && typeof occurrence.dueAt === "string" && typeof occurrence.state === "string" &&
@@ -137,13 +153,14 @@ function formatDate(value?: string, includeTime = true): string {
 }
 
 function scheduleLabel(pulse: PulseDefinition): string {
-  const day = pulse.schedule?.daysOfWeek?.[0];
-  const time = pulse.schedule?.time;
+  if (!pulse.schedule) return "Schedule unavailable";
+  if (pulse.schedule.version === 2) return recurrenceSummary(pulse as Record<string, unknown>);
+  const day = pulse.schedule.daysOfWeek?.[0];
+  const time = pulse.schedule.time;
   if (!day || !time) return "Schedule unavailable";
   const [hourString, minute] = time.split(":");
   const hour = Number(hourString);
-  const clock = Number.isFinite(hour) ? `${hour % 12 || 12}:${minute} ${hour >= 12 ? "PM" : "AM"}` : time;
-  return `${titleCase(day)} at ${clock}`;
+  return `${titleCase(day)} at ${Number.isFinite(hour) ? `${hour % 12 || 12}:${minute} ${hour >= 12 ? "PM" : "AM"}` : time}`;
 }
 
 function openOccurrence(snapshot: PulseSnapshot, pulseId: string): PulseOccurrence | undefined {
@@ -349,6 +366,7 @@ export function PulseManagementView({ request, activeRouteId = "reminders", work
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<PulseDefinition | "new" | null>(null);
+  const [renewing, setRenewing] = useState(false);
   const [deleting, setDeleting] = useState<PulseDefinition | null>(null);
   const [mutationBusy, setMutationBusy] = useState(false);
   const mutationBusyRef = useRef(false);
@@ -365,6 +383,20 @@ export function PulseManagementView({ request, activeRouteId = "reminders", work
       setError("Pulse could not refresh reminders. Check the private service connection and try again.");
     } finally {
       setLoading(false);
+    }
+  }, [service]);
+  const reloadCanonicalSnapshot = useCallback(async (): Promise<boolean> => {
+    try {
+      const response = await service.snapshot();
+      const nextSnapshot = readSnapshot(response.body);
+      setSnapshot(nextSnapshot);
+      setEditing((current) => {
+        if (current === null || current === "new") return current;
+        return nextSnapshot.pulses.find((pulse) => pulse.id === current.id) ?? current;
+      });
+      return true;
+    } catch {
+      return false;
     }
   }, [service]);
   useEffect(() => { void refresh(); }, [refresh]);
@@ -405,17 +437,34 @@ export function PulseManagementView({ request, activeRouteId = "reminders", work
   };
   return <>
     <RouteTabs active={route} onSelect={selectRoute} onRefresh={() => void refresh("Pulse refreshed.")} />
-    {route === "reminders" && (editing
-      ? <ReminderEditor pulse={editing === "new" ? undefined : editing} onCancel={() => setEditing(null)} onDelete={(pulse) => setDeleting(pulse)} onSave={async (definition) => {
+    {route === "reminders" && snapshot.recurrenceMigration?.required && !loading
+      ? <RecurrenceMigrationPage snapshot={snapshot} onMigrate={async (classifications) => {
+          await service.migrateRecurrence(classifications);
+          await refresh("Reminder schedules updated.");
+        }} />
+      : route === "reminders" && (editing
+      ? <ReminderEditor pulse={editing === "new" ? undefined : editing} openOccurrence={editing === "new" ? undefined : openOccurrence(snapshot, editing.id)} renewing={renewing} onCancel={() => { setEditing(null); setRenewing(false); }} onDelete={(pulse) => setDeleting(pulse)} onSave={async (definition) => {
           setError("");
           try {
             if (editing === "new") await service.create(definition);
             else await service.update(editing.id, definition);
             setEditing(null);
+            setRenewing(false);
             await refresh(editing === "new" ? "Reminder created." : "Reminder updated.");
-          } catch (caught) { setError(caught instanceof Error ? caught.message : "Pulse could not save the reminder."); }
+          } catch (caught) {
+            const failure = caught instanceof Error ? caught : new Error("Pulse could not save the reminder.");
+            if (/definition revision conflict/i.test(failure.message)) {
+              const reloaded = await reloadCanonicalSnapshot();
+              setError(reloaded
+                ? `${failure.message} Pulse loaded the latest saved progress; your draft is still here.`
+                : `${failure.message} Your draft is still here, but Pulse could not load the latest saved progress.`);
+            } else {
+              setError(failure.message);
+            }
+            throw failure;
+          }
         }} />
-      : <RemindersPage snapshot={snapshot} loading={loading} mutationBusy={mutationBusy} onNew={() => { setStatus(""); setError(""); setEditing("new"); }} onEdit={(pulse) => { setStatus(""); setError(""); setEditing(pulse); }} onToggle={(pulse) => void toggle(pulse)} />)}
+      : <RemindersPage snapshot={snapshot} loading={loading} mutationBusy={mutationBusy} onNew={() => { setStatus(""); setError(""); setRenewing(false); setEditing("new"); }} onEdit={(pulse) => { setStatus(""); setError(""); setRenewing(false); setEditing(pulse); }} onRenew={(pulse) => { setStatus(""); setError(""); setRenewing(true); setEditing(pulse); }} onToggle={(pulse) => void toggle(pulse)} />)}
     {route === "history" && <HistoryPage snapshot={snapshot} loading={loading} />}
     {route === "settings" && <SettingsPage snapshot={snapshot} request={request} workspaceRoot={workspaceRoot} onWorkspaceRootChange={onWorkspaceRootChange} onRepairDelivery={onRepairDelivery} onDisconnect={onDisconnect} onMigrateConnection={onMigrateConnection} />}
     {error && <p className="pulse-ui__notice" role="alert">{error}</p>}
@@ -424,8 +473,37 @@ export function PulseManagementView({ request, activeRouteId = "reminders", work
   </>;
 }
 
-function RemindersPage({ snapshot, loading, mutationBusy, onNew, onEdit, onToggle }: { snapshot: PulseSnapshot; loading: boolean; mutationBusy: boolean; onNew: () => void; onEdit: (pulse: PulseDefinition) => void; onToggle: (pulse: PulseDefinition) => void }): React.ReactElement {
-  const activeCount = snapshot.pulses.filter((pulse) => pulse.active).length;
+function RecurrenceMigrationPage({ snapshot, onMigrate }: { snapshot: PulseSnapshot; onMigrate: (classifications: unknown[]) => Promise<void> }): React.ReactElement {
+  const legacy = snapshot.pulses.filter((pulse) => snapshot.recurrenceMigration?.legacyPulseIds.includes(pulse.id));
+  const [choices, setChoices] = useState<Record<string, "once" | "repeat">>({});
+  const [counts, setCounts] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const ready = legacy.length > 0 && legacy.every((pulse) => choices[pulse.id]);
+  return <section className="pulse-ui__page" aria-labelledby="pulse-migration-heading">
+    <header className="pulse-ui__page-head"><div><p className="pulse-ui__eyebrow">One-time update</p><h2 id="pulse-migration-heading">Finish updating your reminder schedules</h2><p className="pulse-ui__lede pulse-ui__lede--wide">Old Pulse reminders repeated forever without asking. Choose what each one should do. Nothing changes until every choice saves together.</p></div></header>
+    <form className="pulse-ui__migration" onSubmit={(event) => {
+      event.preventDefault();
+      if (!ready || busy) return;
+      setBusy(true); setError("");
+      const classifications = legacy.map((pulse) => choices[pulse.id] === "once"
+        ? { id: pulse.id, mode: "once" }
+        : { id: pulse.id, mode: "repeat", end: { type: "count", occurrences: Number(counts[pulse.id] ?? 30) } });
+      void onMigrate(classifications).catch((caught) => setError(caught instanceof Error ? caught.message : "Pulse could not update the schedules.")).finally(() => setBusy(false));
+    }}>
+      {legacy.map((pulse) => <fieldset className="pulse-ui__migration-card" key={pulse.id}><legend>{pulse.title}</legend><p>{scheduleLabel(pulse)}</p><div className="pulse-ui__choice-row">
+        <label><input type="radio" name={`migration-${pulse.id}`} checked={choices[pulse.id] === "once"} onChange={() => setChoices((current) => ({ ...current, [pulse.id]: "once" }))} /><span><strong>Runs once</strong><small>Keep the current or next reminder, then finish permanently.</small></span></label>
+        <label><input type="radio" name={`migration-${pulse.id}`} checked={choices[pulse.id] === "repeat"} onChange={() => setChoices((current) => ({ ...current, [pulse.id]: "repeat" }))} /><span><strong>Repeats</strong><small>Keep the weekly schedule as a finite set.</small></span></label>
+      </div>{choices[pulse.id] === "repeat" && <label className="pulse-ui__field pulse-ui__migration-count">Number of reminders<input type="number" min="1" max="365" value={counts[pulse.id] ?? "30"} onChange={(event) => setCounts((current) => ({ ...current, [pulse.id]: event.target.value }))} /><small>30 is the recommended weekly set. You can add another set when it ends.</small></label>}</fieldset>)}
+      {error && <p className="pulse-ui__notice" role="alert">{error}</p>}
+      <div className="pulse-ui__migration-footer"><p>{ready ? "Ready to update all schedules." : `Choose an option for ${legacy.filter((pulse) => !choices[pulse.id]).length} reminder${legacy.filter((pulse) => !choices[pulse.id]).length === 1 ? "" : "s"}.`}</p><button className="pulse-ui__button pulse-ui__button--primary" type="submit" disabled={!ready || busy}>{busy ? "Updating…" : "Update all schedules"}</button></div>
+    </form>
+  </section>;
+}
+
+function RemindersPage({ snapshot, loading, mutationBusy, onNew, onEdit, onRenew, onToggle }: { snapshot: PulseSnapshot; loading: boolean; mutationBusy: boolean; onNew: () => void; onEdit: (pulse: PulseDefinition) => void; onRenew: (pulse: PulseDefinition) => void; onToggle: (pulse: PulseDefinition) => void }): React.ReactElement {
+  const isFinished = (pulse: PulseDefinition) => snapshot.seriesProgress?.[pulse.id]?.complete === true;
+  const activeCount = snapshot.pulses.filter((pulse) => pulse.active && !isFinished(pulse)).length;
   const orderedPulses = [...snapshot.pulses].sort((left, right) => {
     if (left.active !== right.active) return left.active ? -1 : 1;
     const leftDue = openOccurrence(snapshot, left.id)?.dueAt;
@@ -434,6 +512,8 @@ function RemindersPage({ snapshot, loading, mutationBusy, onNew, onEdit, onToggl
     if (leftDue !== rightDue) return leftDue ? -1 : 1;
     return left.title.localeCompare(right.title);
   });
+  const currentPulses = orderedPulses.filter((pulse) => !isFinished(pulse));
+  const finishedPulses = orderedPulses.filter(isFinished);
   return <section className="pulse-ui__page" aria-labelledby="pulse-reminders-heading">
     <header className="pulse-ui__page-head"><div><p className="pulse-ui__eyebrow">Your reminders</p><h2 id="pulse-reminders-heading">Keep the important things moving</h2><p className="pulse-ui__lede">Pulse follows up until you act. Done and Snooze stay on your Android notification.</p></div><button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--icon" type="button" disabled={mutationBusy} onClick={onNew}><PulseIcon kind="plus" /> New reminder</button></header>
     <div className="pulse-ui__stats" aria-label="Pulse summary">
@@ -444,55 +524,155 @@ function RemindersPage({ snapshot, loading, mutationBusy, onNew, onEdit, onToggl
     <p className="pulse-ui__section-label">{loading ? "Loading reminders…" : `${snapshot.pulses.length} saved reminder${snapshot.pulses.length === 1 ? "" : "s"}`}</p>
     {!loading && snapshot.pulses.length === 0
       ? <div className="pulse-ui__panel pulse-ui__empty"><div className="pulse-ui__empty-mark"><PulseIcon kind="bell" /></div><h3>No reminders yet</h3><p className="pulse-ui__muted">Create one here. Pulse will sync it to the cloud runner immediately.</p><button className="pulse-ui__button pulse-ui__button--primary" type="button" onClick={onNew}>Create your first reminder</button></div>
-      : <div className="pulse-ui__list">{orderedPulses.map((pulse) => {
+      : <><div className="pulse-ui__list">{currentPulses.map((pulse) => {
           const occurrence = openOccurrence(snapshot, pulse.id);
           const isDue = occurrence?.state === "due";
+          const progress = snapshot.seriesProgress?.[pulse.id];
+          const progressText = progress?.remaining !== undefined && progress.remaining <= 3
+            ? `${progress.remaining} remaining`
+            : progress?.remaining !== undefined ? `${progress.remaining} of ${(pulse.schedule?.end?.occurrences ?? progress.generated)} remaining`
+              : progress?.endsOn ? `ends ${progress.endsOn}` : "";
           return <article className={`pulse-ui__card${pulse.active ? "" : " pulse-ui__card--paused"}`} key={pulse.id}>
-            <div className="pulse-ui__card-main"><div className="pulse-ui__card-title-row"><h3>{pulse.title}</h3><span className={`pulse-ui__badge${isDue ? " pulse-ui__badge--due" : ""}`}>{!pulse.active ? "Paused" : isDue ? "Due now" : "Active"}</span></div><p className="pulse-ui__schedule">{scheduleLabel(pulse)}{occurrence && !isDue ? ` · next ${formatDate(occurrence.dueAt)}` : ""}</p><p className="pulse-ui__policy">Snooze or no action: {minutesLabel(pulse.notificationPolicy?.snoozeEveryMinutes)}</p></div>
+            <div className="pulse-ui__card-main"><div className="pulse-ui__card-title-row"><h3>{pulse.title}</h3><span className={`pulse-ui__badge${isDue || occurrence?.final ? " pulse-ui__badge--due" : ""}`}>{!pulse.active ? "Paused" : occurrence?.final ? "Final reminder" : isDue ? "Due now" : "Active"}</span></div><p className="pulse-ui__schedule">{scheduleLabel(pulse)}{occurrence && !isDue ? ` · next ${formatDate(occurrence.dueAt)}` : ""}</p>{progressText && <p className="pulse-ui__series-progress">{progressText}</p>}<p className="pulse-ui__policy">Snooze or no action: {minutesLabel(pulse.notificationPolicy?.snoozeEveryMinutes)}</p></div>
             <div className="pulse-ui__actions"><button className="pulse-ui__button" type="button" disabled={mutationBusy} onClick={() => onToggle(pulse)}>{pulse.active ? "Pause" : "Resume"}</button><button className="pulse-ui__button" type="button" disabled={mutationBusy} onClick={() => onEdit(pulse)}>Edit</button></div>
           </article>;
-        })}</div>}
+        })}</div>{finishedPulses.length > 0 && <details className="pulse-ui__finished"><summary>Finished <span>{finishedPulses.length}</span></summary><div className="pulse-ui__list">{finishedPulses.map((pulse) => <article className="pulse-ui__card pulse-ui__card--finished" key={pulse.id}><div className="pulse-ui__card-main"><h3>{pulse.title}</h3><p className="pulse-ui__schedule">{scheduleLabel(pulse)}</p><p className="pulse-ui__policy">This set is complete. It will not restart by itself.</p></div><button className="pulse-ui__button" type="button" onClick={() => onRenew(pulse)}>{pulse.schedule?.type === "once" ? "Schedule again" : "Add another set"}</button></article>)}</div></details>}</>}
   </section>;
 }
 
-function ReminderEditor({ pulse, onCancel, onDelete, onSave }: { pulse?: PulseDefinition; onCancel: () => void; onDelete: (pulse: PulseDefinition) => void; onSave: (pulse: PulseDefinition) => Promise<void> }): React.ReactElement {
+function ReminderEditor({ pulse, openOccurrence: activeOccurrence, renewing = false, onCancel, onDelete, onSave }: { pulse?: PulseDefinition; openOccurrence?: PulseOccurrence; renewing?: boolean; onCancel: () => void; onDelete: (pulse: PulseDefinition) => void; onSave: (pulse: PulseDefinition) => Promise<void> }): React.ReactElement {
+  const savedSchedule = pulse?.schedule;
+  const initialTimezone = savedSchedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "America/Los_Angeles";
   const [title, setTitle] = useState(pulse?.title ?? "");
-  const [day, setDay] = useState(pulse?.schedule?.daysOfWeek?.[0] ?? "sunday");
-  const [time, setTime] = useState(pulse?.schedule?.time ?? "09:00");
+  const [time, setTime] = useState(savedSchedule?.time ?? "09:00");
+  const [date, setDate] = useState(renewing ? defaultReminderDate(new Date(), initialTimezone, savedSchedule?.time ?? "09:00") : savedSchedule?.date ?? savedSchedule?.startDate ?? defaultReminderDate(new Date(), initialTimezone, savedSchedule?.time ?? "09:00"));
+  const [repeat, setRepeat] = useState(savedSchedule?.version === 2 && savedSchedule.type !== "once");
+  const [frequency, setFrequency] = useState<Frequency>(savedSchedule?.type === "daily" || savedSchedule?.type === "weekly" || savedSchedule?.type === "monthly" || savedSchedule?.type === "yearly" ? savedSchedule.type : "weekly");
+  const [interval, setIntervalValue] = useState(String(savedSchedule?.interval ?? 1));
+  const [selectedDays, setSelectedDays] = useState<string[]>(savedSchedule?.daysOfWeek ?? [daysOfWeek[new Date(`${savedSchedule?.startDate ?? date}T00:00:00Z`).getUTCDay()] ?? "sunday"]);
+  const [monthlyRule, setMonthlyRule] = useState<"dayOfMonth" | "nthWeekday" | "lastDay">(savedSchedule?.rule?.type === "nthWeekday" ? "nthWeekday" : savedSchedule?.rule?.missingDate === "lastDay" ? "lastDay" : "dayOfMonth");
+  const [weekStartsOn] = useState(savedSchedule?.weekStartsOn ?? localeWeekStartsOn());
+  const [endType, setEndType] = useState<"count" | "date">(!renewing && savedSchedule?.end?.type === "date" ? "date" : "count");
+  const [endCount, setEndCount] = useState(String(renewing ? recurrenceDefaults[frequency] : savedSchedule?.end?.occurrences ?? recurrenceDefaults[frequency]));
+  const [endDate, setEndDate] = useState(savedSchedule?.end?.date ?? date);
   const [snooze, setSnooze] = useState(String(pulse?.notificationPolicy?.snoozeEveryMinutes ?? 30));
-  const [timezone, setTimezone] = useState(pulse?.schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "America/Los_Angeles");
+  const [timezone, setTimezone] = useState(initialTimezone);
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [pending, setPending] = useState<PulseDefinition | null>(null);
   const savingRef = useRef(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    if (endDate < date) setEndDate(date);
+  }, [date, endDate]);
+  const clearValidation = () => {
+    formRef.current?.querySelectorAll("[aria-invalid='true']").forEach((element) => element.removeAttribute("aria-invalid"));
+    setFormError("");
+  };
+  const showFormError = (caught: unknown) => {
+    const message = caught instanceof Error ? caught.message : "Check the reminder details and try again.";
+    setFormError(message);
+    const field = /name|already exists|\bid\b/i.test(message) ? "name" : /time zone|IANA/i.test(message) ? "timezone" : /snooze/i.test(message) ? "snooze" : /weekday/i.test(message) ? "weekdays" : /interval|Every must/i.test(message) ? "interval" : /end date|before its start/i.test(message) ? "end-date" : /occurrence count|many reminders|five-year|365/i.test(message) ? (endType === "date" ? "end-date" : "end-count") : /time/i.test(message) ? "time" : /date/i.test(message) ? "date" : undefined;
+    const target = field ? formRef.current?.querySelector<HTMLElement>(`[data-field='${field}']`) : undefined;
+    target?.setAttribute("aria-invalid", "true");
+    target?.focus();
+  };
+  const buildDefinition = useCallback(() => {
+    const preserveSavedOrdinal = savedSchedule?.type === "monthly" && savedSchedule.rule?.type === "nthWeekday" && savedSchedule.startDate === date;
+    const formDefinition = pulseDefinitionFromForm({ id: pulse?.id, title, date, time, snooze, timezone, active: pulse?.active ?? true, repeat, frequency, interval, daysOfWeek: selectedDays, weekStartsOn, endType, endCount, endDate, monthlyRule, ...(preserveSavedOrdinal ? { monthlyOrdinal: String(savedSchedule.rule?.ordinal) as "1" | "2" | "3" | "4" | "5" | "last", monthlyWeekday: String(savedSchedule.rule?.day) } : {}), now: new Date() });
+    return (pulse ? { ...pulse, ...formDefinition } : formDefinition) as PulseDefinition;
+  }, [date, endCount, endDate, endType, frequency, interval, monthlyRule, pulse, repeat, savedSchedule, selectedDays, snooze, time, timezone, title, weekStartsOn]);
+  const selectDateEnding = () => {
+    if (endType !== "date") {
+      try { setEndDate(recurrencePreview(buildDefinition()).last); }
+      catch { setEndDate(date); }
+    }
+    setEndType("date");
+  };
+  const monthlyLabels = monthlyRuleLabels(date);
   const submit = async () => {
     if (savingRef.current) return;
     savingRef.current = true;
     setSaving(true);
-    setFormError("");
+    clearValidation();
     try {
-      const formDefinition = pulseDefinitionFromForm({ id: pulse?.id, title, day, time, snooze, timezone, active: pulse?.active ?? true });
-      await onSave(pulse ? { ...pulse, ...formDefinition } as PulseDefinition : formDefinition as PulseDefinition);
-    } catch (caught) { setFormError(caught instanceof Error ? caught.message : "Check the reminder details and try again."); }
+      const definition = buildDefinition();
+      const scheduleChanged = pulse && JSON.stringify(pulse.schedule) !== JSON.stringify(definition.schedule);
+      if (scheduleChanged) { setPending(definition); return; }
+      await onSave(definition);
+    } catch (caught) { showFormError(caught); }
     finally { savingRef.current = false; setSaving(false); }
   };
+  const confirmPendingSchedule = async () => {
+    if (!pending || savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    const definition = pending;
+    try {
+      await onSave(definition);
+      setPending(null);
+    } catch (caught) {
+      setPending(null);
+      showFormError(caught);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  };
   return <section className="pulse-ui__page" aria-labelledby="pulse-editor-heading">
-    <header className="pulse-ui__page-head"><div><p className="pulse-ui__eyebrow">{pulse ? "Edit reminder" : "New reminder"}</p><h2 id="pulse-editor-heading">{pulse ? `Edit ${pulse.title}` : "Create reminder"}</h2><p className="pulse-ui__lede">Choose when the first notification appears and how Pulse should follow up.</p></div></header>
-    <form className="pulse-ui__panel pulse-ui__form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
-      <label className="pulse-ui__field">Reminder name<input aria-label="Reminder name" autoFocus disabled={saving} value={title} placeholder="What needs your attention?" onChange={(event) => setTitle(event.target.value)} /></label>
-      <div className="pulse-ui__form-grid"><label className="pulse-ui__field">Day<select aria-label="Reminder day" value={day} onChange={(event) => setDay(event.target.value)}>{daysOfWeek.map((value) => <option key={value} value={value}>{titleCase(value)}</option>)}</select></label><label className="pulse-ui__field">Time<input aria-label="Reminder time" type="time" value={time} onChange={(event) => setTime(event.target.value)} /></label></div>
+    <header className="pulse-ui__page-head"><div><p className="pulse-ui__eyebrow">{renewing ? "New bounded set" : pulse ? "Edit reminder" : "New reminder"}</p><h2 id="pulse-editor-heading">{renewing ? `Add another set for ${pulse?.title}` : pulse ? `Edit ${pulse.title}` : "Create reminder"}</h2><p className="pulse-ui__lede">Choose when the first notification appears and how Pulse should follow up.</p></div></header>
+    <form ref={formRef} className="pulse-ui__panel pulse-ui__form" onChange={() => { if (formError) clearValidation(); }} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+      <label className="pulse-ui__field">Reminder name<input data-field="name" aria-label="Reminder name" autoFocus disabled={saving} value={title} placeholder="What needs your attention?" onChange={(event) => setTitle(event.target.value)} /></label>
+      <div className="pulse-ui__form-grid"><label className="pulse-ui__field">Date<input data-field="date" aria-label="Reminder date" type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label><label className="pulse-ui__field">Time<input data-field="time" aria-label="Reminder time" type="time" value={time} onChange={(event) => setTime(event.target.value)} /></label></div>
+      <div className="pulse-ui__repeat-choice"><label><input type="checkbox" checked={repeat} aria-expanded={repeat} aria-controls="pulse-recurrence-panel" onChange={(event) => { setRepeat(event.target.checked); if (event.target.checked && !savedSchedule?.end) setEndCount(String(recurrenceDefaults[frequency])); }} /><span><strong>Repeat this reminder</strong><small>{repeat ? "Set a finite schedule and ending." : "Off: Pulse runs once, then moves it to Finished."}</small></span></label></div>
+      {repeat && <fieldset id="pulse-recurrence-panel" className="pulse-ui__recurrence"><legend>Repeat schedule</legend>
+        <div className="pulse-ui__form-grid"><label className="pulse-ui__field">Repeats<select aria-label="Repeat frequency" value={frequency} onChange={(event) => { const next = event.target.value as Frequency; setFrequency(next); setEndCount(String(recurrenceDefaults[next])); }}><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="yearly">Yearly</option></select></label><label className="pulse-ui__field">Every<input data-field="interval" aria-label="Repeat interval" type="number" min="1" max={frequency === "daily" ? 365 : frequency === "weekly" ? 52 : frequency === "monthly" ? 60 : 5} value={interval} onChange={(event) => setIntervalValue(event.target.value)} /><small>{frequency === "daily" ? "days" : frequency === "weekly" ? "weeks" : frequency === "monthly" ? "months" : "years"}</small></label></div>
+        {frequency === "daily" && <button className="pulse-ui__button pulse-ui__weekday-preset" type="button" onClick={() => { setFrequency("weekly"); setIntervalValue("1"); setSelectedDays(["monday", "tuesday", "wednesday", "thursday", "friday"]); setEndCount(String(recurrenceDefaults.weekly)); }}>Use weekdays (Monday–Friday)</button>}
+        {frequency === "weekly" && <fieldset className="pulse-ui__weekday-fieldset"><legend>On</legend><div className="pulse-ui__weekdays" data-field="weekdays" tabIndex={-1}>{daysOfWeek.map((day) => <button key={day} type="button" aria-label={titleCase(day)} aria-pressed={selectedDays.includes(day)} onClick={() => { clearValidation(); setSelectedDays((current) => current.includes(day) ? current.filter((value) => value !== day) : [...current, day]); }}>{day.slice(0, 1).toUpperCase()}</button>)}</div></fieldset>}
+        {frequency === "monthly" && <fieldset className="pulse-ui__end-options"><legend>Monthly rule</legend><label><input type="radio" name="monthly-rule" checked={monthlyRule === "dayOfMonth"} onChange={() => setMonthlyRule("dayOfMonth")} /> {monthlyLabels.dayOfMonth}</label><label><input type="radio" name="monthly-rule" checked={monthlyRule === "nthWeekday"} onChange={() => setMonthlyRule("nthWeekday")} /> {monthlyLabels.nthWeekday}</label><label><input type="radio" name="monthly-rule" checked={monthlyRule === "lastDay"} onChange={() => setMonthlyRule("lastDay")} /> {monthlyLabels.lastDay}</label></fieldset>}
+        <fieldset className="pulse-ui__end-options"><legend>Ends</legend><label><input type="radio" name="series-end" checked={endType === "count"} onChange={() => setEndType("count")} /> After <input data-field="end-count" aria-label="Number of reminders" type="number" min="1" max="365" disabled={endType !== "count"} value={endCount} onChange={(event) => setEndCount(event.target.value)} /> reminders</label><label><input type="radio" name="series-end" checked={endType === "date"} onChange={selectDateEnding} /> On <input data-field="end-date" aria-label="Series end date" type="date" disabled={endType !== "date"} value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label><small>Repeating reminders cannot run forever. The preview calculates the actual total and enforces 365 reminders or five years, whichever comes first.</small></fieldset>
+        <RecurrencePreview build={buildDefinition} />
+      </fieldset>}
       <div className="pulse-ui__timing-grid pulse-ui__timing-grid--single">
-        <TimingControl title="Snooze and no action" description="Used after Snooze, or when you do nothing for two minutes." ariaLabel="Unanswered snooze minutes" value={snooze} onChange={setSnooze} />
+        <TimingControl title="Snooze and no action" description="Used after Snooze, or when you do nothing for two minutes." ariaLabel="Unanswered snooze minutes" dataField="snooze" value={snooze} onChange={setSnooze} />
       </div>
-      <label className="pulse-ui__field">Time zone<input aria-label="Reminder time zone" value={timezone} onChange={(event) => setTimezone(event.target.value)} /><small>Use an IANA time zone, such as America/Los_Angeles. Pulse handles daylight-saving changes.</small></label>
+      <label className="pulse-ui__field">Time zone<input data-field="timezone" aria-label="Reminder time zone" value={timezone} onChange={(event) => setTimezone(event.target.value)} /><small>Use an IANA time zone, such as America/Los_Angeles. Pulse handles daylight-saving changes.</small></label>
       {formError && <p className="pulse-ui__notice" role="alert">{formError}</p>}
       <div className="pulse-ui__form-actions"><div>{pulse && <button className="pulse-ui__button pulse-ui__button--danger" data-action="delete-reminder" type="button" disabled={saving} onClick={() => onDelete(pulse)}>Delete reminder</button>}</div><div className="pulse-ui__form-actions-group"><button className="pulse-ui__button" type="button" disabled={saving} onClick={onCancel}>Cancel</button><button className="pulse-ui__button pulse-ui__button--primary" type="submit" disabled={saving}>{saving ? "Saving…" : pulse ? "Save changes" : "Create reminder"}</button></div></div>
     </form>
+    {pending && <ConfirmDialog eyebrow="Schedule change" title="Update the whole reminder schedule?" description={<p>{openScheduleConsequence(pending, activeOccurrence)} Saved history stays intact.</p>} confirmLabel="Update schedule" cancelLabel="Keep editing" busy={saving} onCancel={() => setPending(null)} onConfirm={() => { void confirmPendingSchedule(); }} />}
   </section>;
 }
 
-function TimingControl({ title, description, ariaLabel, value, onChange }: { title: string; description: string; ariaLabel: string; value: string; onChange: (value: string) => void }): React.ReactElement {
+function RecurrencePreview({ build }: { build: () => PulseDefinition }): React.ReactElement {
+  const [value, setValue] = useState<{ definition: PulseDefinition; preview: ReturnType<typeof recurrencePreview> } | null>(null);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try { const definition = build(); setValue({ definition, preview: recurrencePreview(definition as Record<string, unknown>) }); }
+      catch { setValue(null); }
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [build]);
+  if (!value) return <div className="pulse-ui__recurrence-preview"><span>Schedule preview</span><small>Complete the fields above to see the bounded schedule.</small></div>;
+  const { definition, preview } = value;
+  return <div className="pulse-ui__recurrence-preview" aria-live="polite"><span>Schedule</span><strong>{recurrenceSummary(definition as Record<string, unknown>)}</strong><small>{preview.total} reminder{preview.total === 1 ? "" : "s"} · {localDateLabel(preview.first)}–{localDateLabel(preview.last)}</small><div className="pulse-ui__preview-dates"><span>Next</span>{preview.dates.map((dateValue) => <time key={dateValue} dateTime={dateValue}>{localDateLabel(dateValue, false)}</time>)}</div><small>Assumes each reminder is completed before the next scheduled time. Missed cadence never creates a backlog.</small></div>;
+}
+
+function localDateLabel(value: string, includeYear = true): string {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", ...(includeYear ? { year: "numeric" } : {}), timeZone: "UTC" }).format(new Date(Date.UTC(year!, month! - 1, day!)));
+}
+
+function openScheduleConsequence(next: PulseDefinition, occurrence?: PulseOccurrence): string {
+  const cadence = next.schedule?.type === "once" ? "one-time schedule" : `${next.schedule?.type ?? "new"} schedule`;
+  if (occurrence?.state === "due" || occurrence?.snoozeCount) return `The current reminder stays active until you mark it Done. The ${cadence} begins afterward.`;
+  if (occurrence?.state === "scheduled") return `The next untouched reminder moves to the ${cadence}.`;
+  return `The ${cadence} becomes the active schedule.`;
+}
+
+function TimingControl({ title, description, ariaLabel, dataField, value, onChange }: { title: string; description: string; ariaLabel: string; dataField?: string; value: string; onChange: (value: string) => void }): React.ReactElement {
   const presets = [{ value: "30", label: "30 min" }, { value: "60", label: "1 hour" }, { value: "240", label: "4 hours" }, { value: "1440", label: "1 day" }];
-  return <div className="pulse-ui__timing"><h3>{title}</h3><p>{description}</p><div className="pulse-ui__presets" aria-label={`${title} presets`}>{presets.map((preset) => <button key={preset.value} className="pulse-ui__preset" aria-pressed={value === preset.value} type="button" onClick={() => onChange(preset.value)}>{preset.label}</button>)}</div><label className="pulse-ui__field">Custom minutes<input aria-label={ariaLabel} type="number" min="1" max="10080" value={value} onChange={(event) => onChange(event.target.value)} /></label></div>;
+  return <div className="pulse-ui__timing"><h3>{title}</h3><p>{description}</p><div className="pulse-ui__presets" aria-label={`${title} presets`}>{presets.map((preset) => <button key={preset.value} className="pulse-ui__preset" aria-pressed={value === preset.value} type="button" onClick={() => onChange(preset.value)}>{preset.label}</button>)}</div><label className="pulse-ui__field">Custom minutes<input {...(dataField ? { "data-field": dataField } : {})} aria-label={ariaLabel} type="number" min="1" max="10080" value={value} onChange={(event) => onChange(event.target.value)} /></label></div>;
 }
 
 function HistoryPage({ snapshot, loading }: { snapshot: PulseSnapshot; loading: boolean }): React.ReactElement {
@@ -500,7 +680,7 @@ function HistoryPage({ snapshot, loading }: { snapshot: PulseSnapshot; loading: 
   return <section className="pulse-ui__page" aria-labelledby="pulse-history-heading"><header className="pulse-ui__page-head"><div><p className="pulse-ui__eyebrow">Activity</p><h2 id="pulse-history-heading">Completion history</h2><p className="pulse-ui__lede">A quiet record of what you finished and how many nudges it took.</p></div></header><div className="pulse-ui__panel">{loading ? <p className="pulse-ui__muted">Loading history…</p> : completed.length === 0 ? <div className="pulse-ui__empty"><h3>No completed reminders yet</h3><p className="pulse-ui__muted">Completed occurrences will appear here.</p></div> : completed.map((occurrence) => {
     const pulse = snapshot.pulses.find((item) => item.id === occurrence.pulseId);
     const snoozes = snapshot.state.events.filter((event) => event.occurrenceId === occurrence.id && event.type === "occurrence_snoozed").length;
-    return <div className="pulse-ui__history-row" key={occurrence.id}><span className="pulse-ui__history-icon"><PulseIcon kind="check" /></span><div><strong>{pulse?.title ?? occurrence.pulseId}</strong><div className="pulse-ui__history-meta">{snoozes ? `Completed after ${snoozes} snooze${snoozes === 1 ? "" : "s"}` : "Completed on the first notification"}</div></div><time className="pulse-ui__history-meta" dateTime={occurrence.completedAt ?? occurrence.dueAt}>{formatDate(occurrence.completedAt ?? occurrence.dueAt, false)}</time></div>;
+    return <div className="pulse-ui__history-row" key={occurrence.id}><span className="pulse-ui__history-icon"><PulseIcon kind="check" /></span><div><strong>{pulse?.title ?? occurrence.titleSnapshot ?? occurrence.pulseId}</strong><div className="pulse-ui__history-meta">{snoozes ? `Completed after ${snoozes} snooze${snoozes === 1 ? "" : "s"}` : "Completed on the first notification"}</div></div><time className="pulse-ui__history-meta" dateTime={occurrence.completedAt ?? occurrence.dueAt}>{formatDate(occurrence.completedAt ?? occurrence.dueAt, false)}</time></div>;
   })}</div></section>;
 }
 

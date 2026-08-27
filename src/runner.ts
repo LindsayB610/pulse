@@ -9,6 +9,7 @@ import {
 } from "./model.js";
 import type { PulseState, PulseStateStore } from "./storage.js";
 import { isPulseNtfySequenceId } from "./ntfy-sequence.js";
+import { scheduleInstants } from "./recurrence.js";
 
 export type NotificationInput = {
   channel: string;
@@ -76,7 +77,8 @@ async function runPulseRunnerTickExclusive(input: PulseRunnerTickInput): Promise
     notificationSequenceDeleteFailures: 0,
   };
 
-  retainEarliestOpenOccurrencePerPulse(state, input.pulses);
+  retainActiveOccurrencePerPulse(state, input.pulses);
+  refreshDateBoundFinalFlags(state, input.pulses, input.now);
   reconcileUntouchedFutureOccurrences(state, input.pulses, input.now);
   await cleanupCompletedNotificationSequences(input, state, result);
 
@@ -191,12 +193,59 @@ async function runPulseRunnerTickExclusive(input: PulseRunnerTickInput): Promise
   return result;
 }
 
+function refreshDateBoundFinalFlags(state: PulseState, pulses: PulseDefinition[], now: Date): void {
+  const definitions = new Map(pulses.map((pulse) => [pulse.id, pulse]));
+  for (const occurrence of state.occurrences.filter((candidate) => candidate.state !== "done")) {
+    const schedule = definitions.get(occurrence.pulseId)?.schedule;
+    if (!schedule || !("version" in schedule) || schedule.version !== 2) continue;
+    if (schedule.type === "once") {
+      occurrence.final = true;
+      continue;
+    }
+    if (schedule.end.type !== "date") continue;
+    occurrence.final = !scheduleInstants(schedule, { respectCount: false })
+      .some((instant) => instant.getTime() > now.getTime());
+  }
+}
+
 async function cleanupCompletedNotificationSequences(
   input: PulseRunnerTickInput,
   state: PulseState,
   result: PulseRunnerTickResult,
 ): Promise<void> {
   if (input.notifier.deleteOccurrenceSequence === undefined) return;
+  const pending = [...(state.pendingNotificationSequenceCleanups ?? [])];
+  for (const cleanupRequest of pending) {
+    const cleanupEvents = state.events
+      .filter((event) => event.type === "notification_sequence_cleanup" && event.occurrenceId === cleanupRequest.occurrenceId && event.metadata?.sequenceId === cleanupRequest.sequenceId)
+      .sort((left, right) => Date.parse(right.at) - Date.parse(left.at));
+    const lastAttemptAt = cleanupEvents.map((event) => Date.parse(event.at)).find(Number.isFinite);
+    if (lastAttemptAt !== undefined && input.now.getTime() - lastAttemptAt < sequenceCleanupRetryMinutes * 60_000) continue;
+    const occurrence: PulseOccurrence = {
+      id: cleanupRequest.occurrenceId,
+      pulseId: cleanupRequest.pulseId,
+      dueAt: cleanupRequest.requestedAt,
+      state: "done",
+      completedAt: cleanupRequest.requestedAt,
+      titleSnapshot: cleanupRequest.titleSnapshot,
+    };
+    const cleanup = await deleteNotificationSequence(input.notifier, { occurrence, sequenceId: cleanupRequest.sequenceId, now: input.now });
+    state.events.push(createPulseEvent({
+      pulseId: cleanupRequest.pulseId,
+      occurrenceId: cleanupRequest.occurrenceId,
+      type: "notification_sequence_cleanup",
+      at: input.now,
+      metadata: { channel: "ntfy", sequenceId: cleanupRequest.sequenceId, ok: cleanup.ok, detail: redactNotificationDetail(cleanup.detail ?? "", input.redactValues ?? []), source: "definition-deleted" },
+    }));
+    if (cleanup.ok) {
+      const remaining = state.pendingNotificationSequenceCleanups?.filter((candidate) => candidate.sequenceId !== cleanupRequest.sequenceId) ?? [];
+      if (remaining.length > 0) state.pendingNotificationSequenceCleanups = remaining;
+      else delete state.pendingNotificationSequenceCleanups;
+      result.notificationSequencesDeleted += 1;
+    } else {
+      result.notificationSequenceDeleteFailures += 1;
+    }
+  }
   for (const occurrence of state.occurrences.filter((candidate) => candidate.state === "done")) {
     const sequenceId = notificationSequenceId(state.events, occurrence.id);
     if (sequenceId === undefined) continue;
@@ -263,26 +312,32 @@ function shouldAutomaticallySnooze(
 
 /**
  * A recurring pulse has one active obligation at a time. Older runner builds
- * could pre-schedule future weeks on every tick; retain the earliest open
- * occurrence so that stale state self-heals instead of producing a backlog.
+ * could pre-schedule future weeks on every tick. Work that is already due or
+ * snoozed is the active obligation; only untouched scheduled duplicates are
+ * resolved by due time.
  */
-function retainEarliestOpenOccurrencePerPulse(state: PulseState, pulses: PulseDefinition[]): void {
+function retainActiveOccurrencePerPulse(state: PulseState, pulses: PulseDefinition[]): void {
   const pulseIds = new Set(pulses.map((pulse) => pulse.id));
-  const retained = new Set<string>();
-  for (const occurrence of [...state.occurrences]
-    .filter((occurrence) => pulseIds.has(occurrence.pulseId) && occurrence.state !== "done")
-    .sort((left, right) => Date.parse(left.dueAt) - Date.parse(right.dueAt))) {
-    if (!retained.has(occurrence.pulseId)) retained.add(occurrence.pulseId);
+  const retainedIds = new Map<string, string>();
+  for (const pulseId of pulseIds) {
+    const retained = state.occurrences
+      .filter((occurrence) => occurrence.pulseId === pulseId && occurrence.state !== "done")
+      .sort((left, right) => {
+        const engagementDifference = occurrenceEngagementPriority(right) - occurrenceEngagementPriority(left);
+        return engagementDifference || Date.parse(left.dueAt) - Date.parse(right.dueAt);
+      })[0];
+    if (retained) retainedIds.set(pulseId, retained.id);
   }
   state.occurrences = state.occurrences.filter((occurrence) => {
-    return occurrence.state === "done" || !pulseIds.has(occurrence.pulseId) || retained.has(occurrence.pulseId) && occurrence.id === earliestOpenOccurrenceId(state, occurrence.pulseId);
+    return occurrence.state === "done"
+      || !pulseIds.has(occurrence.pulseId)
+      || retainedIds.get(occurrence.pulseId) === occurrence.id;
   });
 }
 
-function earliestOpenOccurrenceId(state: PulseState, pulseId: string): string | undefined {
-  return state.occurrences
-    .filter((occurrence) => occurrence.pulseId === pulseId && occurrence.state !== "done")
-    .sort((left, right) => Date.parse(left.dueAt) - Date.parse(right.dueAt))[0]?.id;
+function occurrenceEngagementPriority(occurrence: PulseOccurrence): number {
+  if (occurrence.snoozedAt !== undefined || (occurrence.snoozeCount ?? 0) > 0) return 2;
+  return occurrence.state === "due" ? 1 : 0;
 }
 
 /** Keep persisted future state aligned with edited definitions without moving

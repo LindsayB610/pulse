@@ -159,8 +159,20 @@ function formatNtfyBody(input: NotificationInput): string {
   return [
     `Pulse due: ${input.pulse.title}`,
     `Due: ${input.occurrence.dueAt}`,
+    ...seriesNotificationContext(input),
     "Mark Done to stop reminders.",
   ].join("\n");
+}
+
+function seriesNotificationContext(input: NotificationInput): string[] {
+  if (input.occurrence.final === true) return ["Final reminder in this series."];
+  const schedule = input.pulse.schedule;
+  if (!("version" in schedule) || schedule.version !== 2 || schedule.type === "once") return [];
+  if (schedule.end.type === "date") return [`Series ends ${schedule.end.date}.`];
+  const ordinal = input.occurrence.ordinal;
+  if (ordinal === undefined) return [];
+  const remaining = schedule.end.occurrences - ordinal + 1;
+  return remaining <= 3 ? [`${remaining} reminders remain in this series.`] : [];
 }
 
 async function defaultFetch(url: string, init: Parameters<FetchLike>[1]): Promise<FetchResponse> {

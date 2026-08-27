@@ -4,11 +4,18 @@ pulses:
   - id: water-plants
     title: Water the plants
     active: true
+    definitionRevision: 1
+    seriesRevision: 1
     schedule:
+      version: 2
       type: weekly
+      interval: 1
+      startDate: "2026-08-02"
+      weekStartsOn: sunday
       daysOfWeek: [sunday]
       time: "09:00"
       timezone: America/Los_Angeles
+      end: { type: count, occurrences: 30 }
     notificationPolicy:
       channels: [ntfy]
       repeatEveryMinutes: 60
@@ -16,9 +23,12 @@ pulses:
   - id: submit-timesheet
     title: Submit timesheet
     active: false
+    definitionRevision: 1
+    seriesRevision: 1
     schedule:
-      type: weekly
-      daysOfWeek: [friday]
+      version: 2
+      type: once
+      date: "2026-07-31"
       time: "16:00"
       timezone: America/Los_Angeles
     notificationPolicy:
@@ -28,11 +38,17 @@ pulses:
   - id: replace-air-filter
     title: Replace air filter
     active: true
+    definitionRevision: 1
+    seriesRevision: 1
     schedule:
-      type: weekly
-      daysOfWeek: [monday]
+      version: 2
+      type: monthly
+      interval: 1
+      startDate: "2026-08-31"
+      rule: { type: dayOfMonth, day: 31, missingDate: lastDay }
       time: "08:30"
       timezone: America/Los_Angeles
+      end: { type: count, occurrences: 12 }
     notificationPolicy:
       channels: [ntfy]
       repeatEveryMinutes: 120

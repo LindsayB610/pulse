@@ -11,6 +11,11 @@
     "pulse-state": "./bin/pulse-state.mjs",
     "pulse-api": "./bin/pulse-api.mjs"
   },
+  "files": [
+    "bin",
+    "dist",
+    "plugin/dist"
+  ],
   "exports": {
     ".": "./dist/index.js",
     "./workshop-plugin": {
@@ -27,8 +32,9 @@
     "format:check": "node scripts/check-format.mjs",
     "lint": "node scripts/lint-public-boundary.mjs",
     "smoke:compose": "node scripts/smoke-compose.mjs",
-    "test": "npm run build && npm run build:plugin && npm run typecheck:netlify && node --test test/*.test.mjs && tsx --test test/*.test.ts",
-    "test:coverage": "npm run build && npm run build:plugin && npm run typecheck:netlify && node --test --experimental-test-coverage test/*.test.mjs && tsx --test --experimental-test-coverage test/*.test.ts",
+    "test": "npm run build && npm run build:plugin && npm run typecheck:netlify && node --test --test-concurrency=1 test/*.test.mjs && tsx --test test/*.test.ts",
+    "test:coverage": "npm run build && npm run build:plugin && npm run typecheck:netlify && node --test --test-concurrency=1 --experimental-test-coverage test/*.test.mjs && tsx --test --experimental-test-coverage test/*.test.ts && npm run test:coverage:recurrence",
+    "test:coverage:recurrence": "tsx --test --experimental-test-coverage --test-coverage-include=src/recurrence.ts --test-coverage-lines=95 --test-coverage-functions=100 --test-coverage-branches=90 test/recurrence.test.ts && tsx --test --experimental-test-coverage --test-coverage-include=src/series.ts --test-coverage-lines=95 --test-coverage-functions=100 --test-coverage-branches=90 test/recurrence-migration.test.ts && node --test --experimental-test-coverage --test-coverage-include=plugin/dist/definition.js --test-coverage-lines=90 --test-coverage-functions=100 --test-coverage-branches=85 test/plugin-recurrence.test.mjs",
     "test:theme-render": "npm run build:plugin && node --test test/plugin-theme-browser.test.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:netlify": "tsc -p netlify/tsconfig.json --noEmit"
@@ -40,6 +46,7 @@
     "@types/react-dom": "^19.2.4",
     "axe-core": "^4.13.0",
     "jsdom": "^26.1.0",
+    "playwright": "^1.62.1",
     "react": "^19.0.0",
     "react-dom": "^19.2.8",
     "tsx": "^4.23.11",

@@ -224,7 +224,7 @@ test("example pulse fixture parses as a valid weekly pulse", () => {
   const yaml = readFileSync(join(root, "pulses.example.yaml"), "utf8");
   const pulses = loadPulseDefinitionsFromYaml(yaml);
   const occurrences = generateOccurrences(pulses, {
-    after: new Date("2026-06-25T12:00:00.000Z"),
+    after: new Date("2026-09-01T12:00:00.000Z"),
   });
 
   assert.equal(pulses.length, 1);
@@ -232,7 +232,7 @@ test("example pulse fixture parses as a valid weekly pulse", () => {
   assert.equal(pulses[0].schedule.type, "weekly");
   assert.deepEqual(pulses[0].schedule.daysOfWeek, ["sunday"]);
   assert.equal(occurrences.length, 1);
-  assert.equal(occurrences[0].dueAt, "2026-06-28T16:00:00.000Z");
+  assert.equal(occurrences[0].dueAt, "2026-09-06T16:00:00.000Z");
 });
 
 test("event log primitives create durable occurrence events", () => {

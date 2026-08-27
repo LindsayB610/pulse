@@ -10,13 +10,18 @@ cloud runner.
 ## Current Status
 
 The durable engine, authenticated Netlify runner API, ntfy delivery, and
-independently versioned Workshop plugin are complete for the current
-weekly-reminder model:
+independently versioned Workshop plugin support one-time and finite recurring
+reminders:
 
 - public repo boundary
 - TypeScript package shape
 - test and build scripts
-- weekly repeating pulse model with durable occurrence and completion history
+- one-time, daily, weekly, monthly, and yearly schedules with durable
+  occurrence and completion history
+- recurrence off by default, with required count/date endings, a 365-occurrence
+  cap, and a five-year horizon
+- canonical series revisions, remaining/final warnings, a Finished section,
+  and explicit renewal instead of silent infinity
 - one active occurrence per pulse and no dismiss/skip escape hatch
 - automatic no-action snooze after two minutes
 - configurable snooze duration, defaulting to 30 minutes
@@ -60,9 +65,12 @@ walkthroughs remain the final release gates.
    completion, stops later notifications for that occurrence, and deletes only
    that occurrence's ntfy notification chain. If deletion fails, completion
    remains durable and cleanup retries after five minutes.
-5. The Pulse app inside Workshop creates, edits, pauses, resumes, and deletes
-   pulse definitions. Workshop is the desktop host; the management UI and API
-   contract belong to Pulse.
+5. The Pulse app inside Workshop creates one-time reminders by default. Turning
+   on **Repeat this reminder** reveals finite daily, weekly, monthly, or yearly
+   recurrence, a readable summary, and the next three dates.
+6. The app also edits, pauses, resumes, renews, and deletes definitions.
+   Workshop is the desktop host; the management UI and API contract belong to
+   Pulse.
 
 The laptop and Workshop do not need to be running for notifications or phone
 actions to work.
@@ -119,9 +127,9 @@ Advanced, development, and operations references:
 Requirements:
 
 - Node.js 20 or newer for development and checks
-- Chrome or Chromium for the browser-resolved theme contract test; set
-  `PULSE_TEST_CHROME` if its executable is outside the standard macOS or Linux
-  locations
+- Playwright's managed Chromium Headless Shell for browser checks. Install it
+  once with `npx playwright install chromium`. Normal tests never launch the
+  Mac's installed GUI Chrome; `PULSE_TEST_CHROME` is an explicit override only.
 - a user-owned compatible runner; Netlify is the first guided adapter
 - an authenticated private ntfy topic and the ntfy Android app
 - Workshop with the generic secure-service capability for the desktop UI
@@ -158,12 +166,17 @@ versioned app. Workshop is only the desktop host. The plugin uses Workshop's
 generic secure-service capability documented in
 [docs/workshop-secure-service-capability.md](docs/workshop-secure-service-capability.md).
 
-## Current Product Limits
+## Recurrence and current limits
 
-The current creator supports one weekly day, a local time, an IANA time zone,
-and the Snooze/no-action interval. Weekly recurrence is currently unbounded.
+New reminders run once unless **Repeat this reminder** is checked. Recurring
+sets support daily, weekly (including multiple weekdays), monthly exact-date,
+monthly weekday-position/last-day, and yearly cadence. Every set ends after a
+chosen number of reminders or on an inclusive local date. There is no `Never`.
 
-Calendar-style bounded recurrence—one-time, daily, weekly, monthly, and yearly
-schedules with an occurrence limit, final-occurrence warning, expiry, and
-renewal—is the next separate feature build. Those behaviors are not silently
-implied by the current model.
+Each set is limited to 365 actual occurrences and five local calendar years.
+Only one occurrence can be open; missed cadence never queues a backlog. A
+completed one-time reminder or exhausted set moves to **Finished**, where it
+can be scheduled again explicitly. Existing unbounded weekly data is blocked
+behind an all-or-nothing classification screen before schedule v2 activates.
+The full contract and edge-case behavior live in
+[docs/bounded-recurrence-prd.md](docs/bounded-recurrence-prd.md).
