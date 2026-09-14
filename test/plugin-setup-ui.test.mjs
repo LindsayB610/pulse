@@ -329,6 +329,49 @@ test("G5 existing-installation setup cancels its native one-time record before r
   }
 });
 
+test("G5 existing-installation pairing is visibly single-flight", async () => {
+  const { dom, previous } = installDom();
+  const React = await import("react");
+  const { act } = React;
+  const { createRoot } = await import("react-dom/client");
+  const { PulseSetupWizard } = await import("../plugin/dist/index.js");
+  const pending = {
+    version: 1, setupId: "setup_existing_busy", serviceId: "pulse-runner", configFile: "pulse.config.json",
+    installationId: "installation_existing_busy", publicKey: "fixture-public-key", fingerprint: "AA:CC",
+    suggestedTopic: "fixture-existing-busy-topic", state: "existing",
+  };
+  let resolvePair;
+  const pairPending = new Promise((resolve) => { resolvePair = resolve; });
+  let pairs = 0;
+  const invoke = async (command) => {
+    if (command === "complete_managed_secure_service_invitation") { pairs += 1; return pairPending; }
+    if (command === "read_managed_secure_service_metadata") return { version: 1, endpoint: "https://pulse-existing.example", credentialRef: "redacted-reference" };
+    throw new Error(`Unexpected command ${command}`);
+  };
+  const root = createRoot(dom.window.document.getElementById("app"));
+  try {
+    await act(async () => { root.render(React.createElement(PulseSetupWizard, { invoke, restored: pending, initialState: "existing", onConnected: () => {}, onManualSetup: () => {} })); });
+    await act(async () => {
+      setInput(dom.window.document.querySelector('[aria-label="Existing Pulse runner site address"]'), "https://pulse-existing.example");
+      setInput(dom.window.document.querySelector('[aria-label="Pulse invitation code"]'), "invitation-code");
+    });
+    const connect = button(dom.window.document, "Connect this Mac");
+    await act(async () => { connect.click(); connect.click(); connect.click(); });
+    assert.equal(pairs, 1);
+    assert.equal(connect.textContent.trim(), "Connecting…");
+    assert.equal(connect.disabled, true);
+    assert.equal(connect.getAttribute("aria-busy"), "true");
+    await act(async () => { resolvePair(undefined); await pairPending; });
+  } finally {
+    await act(async () => { root.unmount(); });
+    dom.window.close();
+    globalThis.window = previous.window;
+    globalThis.document = previous.document;
+    globalThis.CustomEvent = previous.customEvent;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = previous.act;
+  }
+});
+
 test("G5 setup notification tests are single-flight under duplicate activation", async () => {
   const { dom, previous } = installDom();
   const React = await import("react");
@@ -355,6 +398,8 @@ test("G5 setup notification tests are single-flight under duplicate activation",
     await act(async () => { send.click(); send.click(); });
     assert.equal(sends, 1);
     assert.equal(send.disabled, true);
+    assert.equal(send.textContent.trim(), "Sending…");
+    assert.equal(send.getAttribute("aria-busy"), "true");
     await act(async () => { resolveRequest({ status: 202, body: { accepted: true } }); await pendingRequest; });
     assert.match(dom.window.document.body.textContent, /Test sent/);
     const sentActions = [...dom.window.document.querySelectorAll(".pulse-ui__setup-actions button")];

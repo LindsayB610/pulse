@@ -74,6 +74,12 @@ async function waitFor(act, predicate, message) {
   assert.fail(message);
 }
 
+function addIsoDays(value, amount) {
+  const date = new Date(`${value}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + amount);
+  return date.toISOString().slice(0, 10);
+}
+
 async function mountedPulse(snapshot = fixtureSnapshot, onRouteChange, respond, onWorkspaceRootChange) {
   const { dom, previous } = installDom();
   const React = await import("react");
@@ -122,9 +128,9 @@ test("mounted production Pulse UI renders a truthful management dashboard and cr
 
     await act(async () => { [...dom.window.document.querySelectorAll("button")].find((button) => button.textContent.includes("New reminder")).click(); });
     assert.match(dom.window.document.body.textContent, /Create reminder/);
+    const reminderDate = dom.window.document.querySelector("[data-field='date']").dataset.value;
     await act(async () => {
       setControlValue(dom.window.document.querySelector('[aria-label="Reminder name"]'), "Feed starter");
-      setControlValue(dom.window.document.querySelector('[aria-label="Reminder date"]'), "2026-08-28");
       setControlValue(dom.window.document.querySelector('[aria-label="Reminder time"]'), "18:45");
       setControlValue(dom.window.document.querySelector('[aria-label="Unanswered snooze minutes"]'), "1440");
     });
@@ -132,7 +138,7 @@ test("mounted production Pulse UI renders a truthful management dashboard and cr
     assert.deepEqual(requests.find((entry) => entry.method === "POST"), {
       method: "POST",
       path: "/api/v1/pulses",
-      body: { id: "feed-starter", title: "Feed starter", active: true, schedule: { version: 2, type: "once", date: "2026-08-28", time: "18:45", timezone: "America/Los_Angeles" }, notificationPolicy: { channels: ["ntfy"], repeatEveryMinutes: 5, snoozeEveryMinutes: 1440 } },
+      body: { id: "feed-starter", title: "Feed starter", active: true, schedule: { version: 2, type: "once", date: reminderDate, time: "18:45", timezone: "America/Los_Angeles" }, notificationPolicy: { channels: ["ntfy"], repeatEveryMinutes: 5, snoozeEveryMinutes: 1440 } },
     });
   } finally {
     await mounted.close();
@@ -153,24 +159,26 @@ test("recurrence is explicit, progressively disclosed, and always bounded", asyn
     const countEnding = mounted.dom.window.document.querySelectorAll('input[name="series-end"]')[0];
     const dateEnding = mounted.dom.window.document.querySelectorAll('input[name="series-end"]')[1];
     const countInput = mounted.dom.window.document.querySelector('[aria-label="Number of reminders"]');
-    const endDateInput = mounted.dom.window.document.querySelector('[aria-label="Series end date"]');
+    const endDateInput = mounted.dom.window.document.querySelector('[data-field="end-date"]');
     assert.equal(countInput.disabled, false);
     assert.equal(endDateInput.disabled, true);
     await mounted.act(async () => {
       setControlValue(mounted.dom.window.document.querySelector('[aria-label="Reminder name"]'), "Team check-in");
-      setControlValue(mounted.dom.window.document.querySelector('[aria-label="Reminder date"]'), "2026-08-28");
       setControlValue(mounted.dom.window.document.querySelector('[aria-label="Repeat frequency"]'), "weekly");
-      mounted.dom.window.document.querySelector('button[aria-label="Monday"]').click();
-      mounted.dom.window.document.querySelector('button[aria-label="Wednesday"]').click();
+      const monday = mounted.dom.window.document.querySelector('button[aria-label="Monday"]');
+      const wednesday = mounted.dom.window.document.querySelector('button[aria-label="Wednesday"]');
+      if (monday.getAttribute("aria-pressed") !== "true") monday.click();
+      if (wednesday.getAttribute("aria-pressed") !== "true") wednesday.click();
       setControlValue(mounted.dom.window.document.querySelector('[aria-label="Number of reminders"]'), "8");
     });
     await waitFor(mounted.act, () => /8 reminders/.test(mounted.dom.window.document.querySelector(".pulse-ui__recurrence-preview")?.textContent ?? ""), "debounced recurrence preview becomes visible");
     assert.equal(mounted.dom.window.document.querySelectorAll(".pulse-ui__preview-dates time").length, 3);
-    assert.ok(endDateInput.value >= "2026-08-28");
+    const reminderDate = mounted.dom.window.document.querySelector('[data-field="date"]').dataset.value;
+    assert.ok(endDateInput.dataset.value >= reminderDate);
     await mounted.act(async () => { dateEnding.click(); });
     assert.equal(countInput.disabled, true);
     assert.equal(endDateInput.disabled, false);
-    assert.ok(endDateInput.value >= "2026-08-28");
+    assert.ok(endDateInput.dataset.value >= reminderDate);
     await mounted.act(async () => { countEnding.click(); });
     await mounted.act(async () => { mounted.dom.window.document.querySelector("form").dispatchEvent(new mounted.dom.window.Event("submit", { bubbles: true, cancelable: true })); });
     const created = mounted.requests.find((entry) => entry.method === "POST" && entry.path === "/api/v1/pulses");
@@ -179,6 +187,44 @@ test("recurrence is explicit, progressively disclosed, and always bounded", asyn
     assert.equal(created.body.schedule.end.occurrences, 8);
     assert.ok(created.body.schedule.daysOfWeek.includes("monday"));
     assert.ok(created.body.schedule.daysOfWeek.includes("wednesday"));
+  } finally {
+    await mounted.close();
+  }
+});
+
+test("choosing a new start date updates the untouched weekly default", async () => {
+  const mounted = await mountedPulse();
+  try {
+    await mounted.render("reminders");
+    await mounted.act(async () => { [...mounted.dom.window.document.querySelectorAll("button")].find((button) => button.textContent.includes("New reminder")).click(); });
+    const trigger = mounted.dom.window.document.querySelector("[data-field='date']");
+    const nextDate = addIsoDays(trigger.dataset.value, 1);
+    const expectedDay = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][new Date(`${nextDate}T00:00:00Z`).getUTCDay()];
+    await mounted.act(async () => trigger.click());
+    await mounted.act(async () => mounted.dom.window.document.querySelector(`[data-date='${nextDate}']`).click());
+    const repeat = [...mounted.dom.window.document.querySelectorAll('input[type="checkbox"]')].find((input) => input.closest("label")?.textContent.includes("Repeat this reminder"));
+    await mounted.act(async () => repeat.click());
+    assert.equal(mounted.dom.window.document.querySelector(`button[aria-label='${expectedDay}']`).getAttribute("aria-pressed"), "true");
+    assert.equal([...mounted.dom.window.document.querySelectorAll(".pulse-ui__weekdays button[aria-pressed='true']")].length, 1);
+  } finally {
+    await mounted.close();
+  }
+});
+
+test("the weekdays preset remains deliberate after the start date changes", async () => {
+  const mounted = await mountedPulse();
+  try {
+    await mounted.render("reminders");
+    await mounted.act(async () => { [...mounted.dom.window.document.querySelectorAll("button")].find((button) => button.textContent.includes("New reminder")).click(); });
+    const repeat = [...mounted.dom.window.document.querySelectorAll('input[type="checkbox"]')].find((input) => input.closest("label")?.textContent.includes("Repeat this reminder"));
+    await mounted.act(async () => repeat.click());
+    await mounted.act(async () => setControlValue(mounted.dom.window.document.querySelector('[aria-label="Repeat frequency"]'), "daily"));
+    await mounted.act(async () => [...mounted.dom.window.document.querySelectorAll("button")].find((button) => button.textContent.includes("Use weekdays")).click());
+    const trigger = mounted.dom.window.document.querySelector("[data-field='date']");
+    const nextDate = addIsoDays(trigger.dataset.value, 1);
+    await mounted.act(async () => trigger.click());
+    await mounted.act(async () => mounted.dom.window.document.querySelector(`[data-date='${nextDate}']`).click());
+    assert.deepEqual([...mounted.dom.window.document.querySelectorAll(".pulse-ui__weekdays button[aria-pressed='true']")].map((button) => button.getAttribute("aria-label")), ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]);
   } finally {
     await mounted.close();
   }
@@ -208,6 +254,38 @@ test("legacy reminders block ordinary editing until every schedule is explicitly
   }
 });
 
+test("legacy schedule migration acknowledges one accepted submit and ignores duplicate activation", async () => {
+  const legacySnapshot = {
+    ...fixtureSnapshot,
+    pulses: fixturePulses.map((pulse) => ({ ...pulse, definitionRevision: undefined, seriesRevision: undefined, schedule: { type: "weekly", daysOfWeek: pulse.schedule.daysOfWeek, time: pulse.schedule.time, timezone: pulse.schedule.timezone } })),
+    recurrenceMigration: { required: true, legacyPulseIds: fixturePulses.map((pulse) => pulse.id) },
+  };
+  let resolveMigration;
+  const migrationPending = new Promise((resolve) => { resolveMigration = resolve; });
+  const mounted = await mountedPulse(legacySnapshot, undefined, async (entry, snapshot) => {
+    if (entry.path === "/api/v1/snapshot") return { status: 200, body: snapshot };
+    if (entry.path === "/api/v1/migrations/recurrence") return migrationPending;
+    return { status: 200, body: {} };
+  });
+  try {
+    await mounted.render("reminders");
+    const cards = [...mounted.dom.window.document.querySelectorAll(".pulse-ui__migration-card")];
+    await mounted.act(async () => {
+      cards[0].querySelectorAll('input[type="radio"]')[0].click();
+      cards[1].querySelectorAll('input[type="radio"]')[1].click();
+    });
+    const update = [...mounted.dom.window.document.querySelectorAll("button")].find((button) => button.textContent === "Update all schedules");
+    await mounted.act(async () => { update.click(); update.click(); update.click(); });
+    assert.equal(mounted.requests.filter((entry) => entry.path === "/api/v1/migrations/recurrence").length, 1);
+    assert.equal(update.textContent.trim(), "Updating…");
+    assert.equal(update.disabled, true);
+    assert.equal(update.getAttribute("aria-busy"), "true");
+    await mounted.act(async () => { resolveMigration({ status: 200, body: {} }); await migrationPending; });
+  } finally {
+    await mounted.close();
+  }
+});
+
 test("completed sets stay visible but never renew automatically", async () => {
   const finished = {
     ...fixtureSnapshot,
@@ -222,7 +300,7 @@ test("completed sets stay visible but never renew automatically", async () => {
     assert.match(mounted.dom.window.document.body.textContent, /will not restart by itself/);
     await mounted.act(async () => { [...mounted.dom.window.document.querySelectorAll("button")].find((button) => button.textContent === "Add another set").click(); });
     assert.match(mounted.dom.window.document.body.textContent, /Add another set for Water houseplants/);
-    const renewalDate = mounted.dom.window.document.querySelector('[aria-label="Reminder date"]').value;
+    const renewalDate = mounted.dom.window.document.querySelector('[data-field="date"]').dataset.value;
     await mounted.act(async () => { mounted.dom.window.document.querySelector("form").dispatchEvent(new mounted.dom.window.Event("submit", { bubbles: true, cancelable: true })); });
     const confirmation = mounted.dom.window.document.querySelector("[role='dialog']");
     assert.match(confirmation.textContent, /weekly schedule becomes the active schedule/i);
@@ -414,8 +492,76 @@ test("production network actions are single-flight even when activated twice in 
     await mounted.act(async () => { testButton.click(); testButton.click(); });
     assert.equal(mounted.requests.filter((entry) => entry.path === "/api/setup/test-notification").length, 1);
     assert.equal(testButton.disabled, true);
+    assert.equal(testButton.textContent.trim(), "Sending…");
+    assert.equal(testButton.getAttribute("aria-busy"), "true");
     await mounted.act(async () => { resolveTest({ status: 202, body: { accepted: true } }); await testPending; });
     assert.match(mounted.dom.window.document.body.textContent, /Test sent/);
+  } finally {
+    await mounted.close();
+  }
+});
+
+test("delete acknowledges the first click immediately and rejects duplicate activation", async () => {
+  let resolveDelete;
+  const deletePending = new Promise((resolve) => { resolveDelete = resolve; });
+  const mounted = await mountedPulse(fixtureSnapshot, undefined, async (entry, snapshot) => {
+    if (entry.path === "/api/v1/snapshot") return { status: 200, body: snapshot };
+    if (entry.method === "DELETE") return deletePending;
+    return { status: 200, body: {} };
+  });
+  try {
+    await mounted.render("reminders");
+    const card = [...mounted.dom.window.document.querySelectorAll("article")].find((article) => article.textContent.includes("Water houseplants"));
+    await mounted.act(async () => { [...card.querySelectorAll("button")].find((button) => button.textContent === "Edit").click(); });
+    await mounted.act(async () => { mounted.dom.window.document.querySelector("[data-action='delete-reminder']").click(); });
+    const confirm = [...mounted.dom.window.document.querySelector("[role='dialog']").querySelectorAll("button")].find((button) => button.textContent === "Delete reminder");
+    await mounted.act(async () => { confirm.click(); confirm.click(); confirm.click(); });
+    assert.equal(mounted.requests.filter((entry) => entry.method === "DELETE").length, 1);
+    assert.equal(confirm.textContent.trim(), "Deleting…");
+    assert.equal(confirm.disabled, true);
+    assert.equal(confirm.getAttribute("aria-busy"), "true");
+    assert.equal([...mounted.dom.window.document.querySelector("[role='dialog']").querySelectorAll("button")].find((button) => button.textContent === "Keep reminder").disabled, true);
+    await mounted.act(async () => { resolveDelete({ status: 204, body: {} }); await deletePending; });
+    assert.equal(mounted.dom.window.document.querySelector("[role='dialog']"), null);
+    assert.match(mounted.dom.window.document.body.textContent, /Reminder deleted/);
+  } finally {
+    await mounted.close();
+  }
+});
+
+test("refresh and reminder toggles expose the accepted action while remaining single-flight", async () => {
+  let snapshotReads = 0;
+  let resolveRefresh;
+  let resolvePause;
+  const refreshPending = new Promise((resolve) => { resolveRefresh = resolve; });
+  const pausePending = new Promise((resolve) => { resolvePause = resolve; });
+  const mounted = await mountedPulse(fixtureSnapshot, undefined, async (entry, snapshot) => {
+    if (entry.path === "/api/v1/snapshot") {
+      snapshotReads += 1;
+      return snapshotReads === 1 ? { status: 200, body: snapshot } : refreshPending;
+    }
+    if (entry.method === "PATCH") return pausePending;
+    return { status: 200, body: {} };
+  });
+  try {
+    await mounted.render("reminders");
+    const refresh = [...mounted.dom.window.document.querySelectorAll("button")].find((button) => button.textContent.trim() === "Refresh");
+    await mounted.act(async () => { refresh.click(); refresh.click(); refresh.click(); });
+    assert.equal(snapshotReads, 2);
+    assert.equal(refresh.textContent.trim(), "Refreshing…");
+    assert.equal(refresh.disabled, true);
+    assert.equal(refresh.getAttribute("aria-busy"), "true");
+    await mounted.act(async () => { resolveRefresh({ status: 200, body: fixtureSnapshot }); await refreshPending; });
+
+    const card = [...mounted.dom.window.document.querySelectorAll("article")].find((article) => article.textContent.includes("Water houseplants"));
+    const pause = [...card.querySelectorAll("button")].find((button) => button.textContent === "Pause");
+    await mounted.act(async () => { pause.click(); pause.click(); pause.click(); });
+    assert.equal(mounted.requests.filter((entry) => entry.method === "PATCH").length, 1);
+    assert.equal(pause.textContent.trim(), "Pausing…");
+    assert.equal(pause.disabled, true);
+    assert.equal(pause.getAttribute("aria-busy"), "true");
+    await mounted.act(async () => { resolvePause({ status: 200, body: {} }); await pausePending; });
+    await mounted.act(async () => { resolveRefresh({ status: 200, body: fixtureSnapshot }); });
   } finally {
     await mounted.close();
   }

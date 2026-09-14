@@ -68,7 +68,7 @@ metaphor.
 | Surface | Host near-black page; cards one restrained step lighter with a 1px low-contrast border; 12px radius; shadows only for a dialog. |
 | Color | One Pulse pink/magenta accent for the primary action and focus; green/amber/red reserved for health semantics and paired with text/icon. |
 | Spacing | 4px base unit; 12/16px internal control rhythm; 20/24px card padding; 28/36px section gaps. |
-| Buttons | One filled primary button per view. Secondary actions are quiet outlined/text buttons. Delete never shares primary visual weight. |
+| Buttons | One filled primary button per view. Secondary actions are quiet outlined/text buttons. Delete never shares primary visual weight. Every accepted asynchronous action changes its own label immediately, becomes single-flight, and exposes a busy state until success or recovery. |
 | Status | Small icon + plain-language label, never a bare machine token. Use badges only inside a card header, not as the page’s main content. |
 | Motion | 120–180ms opacity/transform for panel and feedback transitions; reduced-motion safe; no ornamental looping animation. |
 
@@ -278,6 +278,10 @@ rationale, component inventory, and desktop/narrow evidence remain in
 
 - Build one accessible create/edit form with preset-to-custom notification
   timing.
+- Own the desktop date-selection interaction: make the full field clickable,
+  show a readable calendar with month navigation, direct month/year selection,
+  and a Today shortcut, preserve direct keyboard operation, and reuse the
+  control for finite end dates.
 - Implement real update behavior using the existing authenticated service;
   do not clone partial pulse records and accidentally discard schedule or
   policy fields.

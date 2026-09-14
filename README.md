@@ -20,6 +20,7 @@ reminders:
   occurrence and completion history
 - recurrence off by default, with required count/date endings, a 365-occurrence
   cap, and a five-year horizon
+- Pulse-owned, keyboard-accessible desktop date selection for start and end dates
 - canonical series revisions, remaining/final warnings, a Finished section,
   and explicit renewal instead of silent infinity
 - one active occurrence per pulse and no dismiss/skip escape hatch

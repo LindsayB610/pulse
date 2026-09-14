@@ -60,6 +60,7 @@ export function PulseSetupWizard({ invoke, restored, initialState, onConnected, 
   const [state, setState] = useState<SetupState>(() => initialState ?? setupStateFromNative(restored?.state ?? "welcome"));
   const [runnerOrigin, setRunnerOrigin] = useState("");
   const [busy, setBusy] = useState(false);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
   const busyRef = useRef(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
@@ -86,7 +87,7 @@ export function PulseSetupWizard({ invoke, restored, initialState, onConnected, 
     return () => { cancelled = true; };
   }, [invoke, pending, state]);
 
-  const persistState = async (next: SetupState): Promise<boolean> => {
+  const persistState = async (next: SetupState, action = "continue"): Promise<boolean> => {
     if (busyRef.current) return false;
     busyRef.current = true;
     setError("");
@@ -97,6 +98,7 @@ export function PulseSetupWizard({ invoke, restored, initialState, onConnected, 
       return true;
     }
     setBusy(true);
+    setBusyAction(action);
     try {
       const updated = await updatePulseManagedSetup(invoke, pending.setupId, next);
       setPending(updated);
@@ -105,20 +107,20 @@ export function PulseSetupWizard({ invoke, restored, initialState, onConnected, 
     } catch (caught) {
       setError(message(caught, "Workshop could not save this setup step. Nothing changed; try again."));
       return false;
-    } finally { busyRef.current = false; setBusy(false); }
+    } finally { busyRef.current = false; setBusy(false); setBusyAction(null); }
   };
 
   const start = async () => {
     if (busyRef.current) return;
     busyRef.current = true;
-    setBusy(true); setError("");
+    setBusy(true); setBusyAction("start"); setError("");
     try {
       const created = await beginPulseManagedSetup(invoke);
       setPending(created);
       await persistStateWith(created, "phone-user");
     } catch (caught) {
       setError(message(caught, "Workshop could not start secure setup."));
-    } finally { busyRef.current = false; setBusy(false); }
+    } finally { busyRef.current = false; setBusy(false); setBusyAction(null); }
   };
 
   const persistStateWith = async (record: ManagedSetupView, next: SetupState) => {
@@ -129,7 +131,7 @@ export function PulseSetupWizard({ invoke, restored, initialState, onConnected, 
 
   const next = async () => {
     const target = setupForward(state);
-    if (target) await persistState(target);
+    if (target) await persistState(target, "continue");
   };
 
   const back = async () => {
@@ -139,13 +141,13 @@ export function PulseSetupWizard({ invoke, restored, initialState, onConnected, 
       setConfirmingStartOver(true);
       return;
     }
-    await persistState(backTarget);
+    await persistState(backTarget, "back");
   };
 
   const pair = async () => {
     if (!pending || busyRef.current) return;
     busyRef.current = true;
-    setBusy(true); setError("");
+    setBusy(true); setBusyAction("pair"); setError("");
     try {
       const endpoint = normalizeRunnerOrigin(runnerOrigin);
       await completePulseManagedSetup(invoke, pending.setupId, endpoint);
@@ -154,13 +156,13 @@ export function PulseSetupWizard({ invoke, restored, initialState, onConnected, 
       setStatus("Runner connected. Your credential is in Keychain.");
     } catch (caught) {
       setError(message(caught, "Workshop could not verify and connect this runner."));
-    } finally { busyRef.current = false; setBusy(false); }
+    } finally { busyRef.current = false; setBusy(false); setBusyAction(null); }
   };
 
   const migrate = async () => {
     if (!pending || busyRef.current) return;
     busyRef.current = true;
-    setBusy(true); setError("");
+    setBusy(true); setBusyAction("migrate"); setError("");
     try {
       const endpoint = normalizeRunnerOrigin(runnerOrigin);
       await completePulseManagedSetup(invoke, pending.setupId, endpoint);
@@ -170,13 +172,13 @@ export function PulseSetupWizard({ invoke, restored, initialState, onConnected, 
       setError(detail
         ? `Workshop stopped during runner verification: ${detail} Your previous connection is unchanged.`
         : "Workshop could not verify the updated runner. Your previous connection is unchanged.");
-    } finally { busyRef.current = false; setBusy(false); }
+    } finally { busyRef.current = false; setBusy(false); setBusyAction(null); }
   };
 
   const openSecretPage = async (): Promise<boolean> => {
     if (busyRef.current) return false;
     busyRef.current = true;
-    setBusy(true); setError("");
+    setBusy(true); setBusyAction("handoff-action"); setError("");
     try {
       await openPulseNotificationCredentialHandoff(invoke);
       setStatus("Your runner opened in the browser. Paste the ntfy token there, save it, then return here.");
@@ -184,13 +186,13 @@ export function PulseSetupWizard({ invoke, restored, initialState, onConnected, 
     } catch (caught) {
       setError(message(caught, "Pulse could not open the runner-owned secure page."));
       return false;
-    } finally { busyRef.current = false; setBusy(false); }
+    } finally { busyRef.current = false; setBusy(false); setBusyAction(null); }
   };
 
   const sendTest = async () => {
     if (busyRef.current) return;
     busyRef.current = true;
-    setBusy(true); setError("");
+    setBusy(true); setBusyAction("send-test"); setError("");
     try {
       const requester = await createManagedWorkshopSecureServiceRequester(invoke);
       const response = await requester({
@@ -202,24 +204,24 @@ export function PulseSetupWizard({ invoke, restored, initialState, onConnected, 
       setStatus("Test sent. Check your Android notifications for “Pulse setup test.”");
     } catch (caught) {
       setError(message(caught, "The runner is connected, but the test notification did not send."));
-    } finally { busyRef.current = false; setBusy(false); }
+    } finally { busyRef.current = false; setBusy(false); setBusyAction(null); }
   };
 
   const finish = async () => {
     if (busyRef.current) return;
     busyRef.current = true;
-    setBusy(true); setError("");
+    setBusy(true); setBusyAction("finish"); setError("");
     try {
       onConnected(await createManagedWorkshopSecureServiceRequester(invoke));
     } catch (caught) {
       setError(message(caught, "Pulse could not open your connected reminders."));
-    } finally { busyRef.current = false; setBusy(false); }
+    } finally { busyRef.current = false; setBusy(false); setBusyAction(null); }
   };
 
   const startOver = async (): Promise<boolean> => {
     if (busyRef.current) return false;
     busyRef.current = true;
-    setBusy(true); setError("");
+    setBusy(true); setBusyAction("start-over"); setError("");
     try {
       if (pending) await cancelPulseManagedSetup(invoke, pending.setupId);
       setPending(undefined); setState("welcome"); setRunnerOrigin(""); setStatus(""); setCompletedHandoffs({});
@@ -227,13 +229,14 @@ export function PulseSetupWizard({ invoke, restored, initialState, onConnected, 
     } catch (caught) {
       setError(message(caught, "Workshop could not safely clear this setup. Your progress is still here."));
       return false;
-    } finally { busyRef.current = false; setBusy(false); }
+    } finally { busyRef.current = false; setBusy(false); setBusyAction(null); }
   };
 
-  const openExternal = async (url: string, fallback: string, success?: string, onOpened?: () => void) => {
+  const openExternal = async (url: string, fallback: string, success?: string, onOpened?: () => void, action = "handoff-action") => {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
+    setBusyAction(action);
     setError("");
     try {
       await openPulseSetupUrl(invoke, url);
@@ -241,13 +244,14 @@ export function PulseSetupWizard({ invoke, restored, initialState, onConnected, 
       if (success) setStatus(success);
     }
     catch (caught) { setError(message(caught, fallback)); }
-    finally { busyRef.current = false; setBusy(false); }
+    finally { busyRef.current = false; setBusy(false); setBusyAction(null); }
   };
 
-  const copyText = async (value: string, label: string, onCopied?: () => void) => {
+  const copyText = async (value: string, label: string, onCopied?: () => void, action = "handoff-action") => {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
+    setBusyAction(action);
     setError("");
     try {
       if (!navigator.clipboard?.writeText) throw new Error("Clipboard access is unavailable.");
@@ -255,7 +259,7 @@ export function PulseSetupWizard({ invoke, restored, initialState, onConnected, 
       onCopied?.();
       setStatus(`${label} copied.`);
     } catch (caught) { setError(message(caught, `Pulse could not copy the ${label.toLowerCase()}.`)); }
-    finally { busyRef.current = false; setBusy(false); }
+    finally { busyRef.current = false; setBusy(false); setBusyAction(null); }
   };
 
   const markHandoffComplete = (step: SetupState) => {
@@ -273,54 +277,55 @@ export function PulseSetupWizard({ invoke, restored, initialState, onConnected, 
       <div className="pulse-ui__setup-track"><span style={{ width: `${(progress.current / progress.total) * 100}%` }} /></div>
     </div>}
     <main className="pulse-ui__setup-main">
-      {canGoBack && <button className="pulse-ui__back" type="button" disabled={busy} onClick={() => void back()}><PulseIcon kind="arrow-left" /> Back</button>}
+      {canGoBack && <button className="pulse-ui__back" type="button" disabled={busy} aria-busy={busyAction === "back" || undefined} onClick={() => void back()}><PulseIcon kind="arrow-left" /> {busyAction === "back" ? "Going back…" : "Back"}</button>}
       <p className="pulse-ui__eyebrow">{content.eyebrow}</p>
       <h2 id="pulse-setup-title">{content.title}</h2>
       <p className="pulse-ui__setup-lede">{content.lede}</p>
       {content.body}
       {state === "welcome" && <div className="pulse-ui__setup-actions">
-        <button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large" type="button" disabled={busy} onClick={() => void start()}>Set up Pulse</button>
+        <button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large" type="button" disabled={busy} aria-busy={busyAction === "start" || undefined} onClick={() => void start()}>{busyAction === "start" ? "Starting…" : "Set up Pulse"}</button>
         <button className="pulse-ui__button" type="button" onClick={() => setState("existing")}>Connect an existing Pulse</button>
         <button className="pulse-ui__text-button" type="button" onClick={() => setState("advanced")}>Advanced setup</button>
       </div>}
-      {state === "phone-user" && <HandoffActions busy={busy} completed={completedHandoffs[state] === true} action="Open ntfy account" actionAgain="Open ntfy account again" confirmation="My ntfy user is saved" already="My ntfy user is already saved" actionIcon="external" onAction={() => void openExternal(ntfyAccountUrl, "Pulse could not open the ntfy account page.", "ntfy opened. Save your Pulse user there, then return to Workshop.", () => markHandoffComplete(state))} onConfirm={() => void next()} />}
-      {state === "phone-topic" && <HandoffActions busy={busy} completed={completedHandoffs[state] === true} action="Copy topic" actionAgain="Copy topic again" confirmation="My topic is reserved" already="My topic is already reserved" actionIcon="copy" onAction={() => void copyText(topic, "Topic", () => markHandoffComplete(state))} onConfirm={() => void next()} />}
-      {state === "phone-subscription" && <HandoffActions busy={busy} completed={completedHandoffs[state] === true} action="Open ntfy for Android" actionAgain="Open ntfy for Android again" confirmation="Pulse appears in my topics" already="Pulse is already in my topics" actionIcon="external" onAction={() => void openExternal(ntfyAppUrl, "Pulse could not open the ntfy Android page.", "ntfy for Android opened. Subscribe to the Pulse topic, then return to Workshop.", () => markHandoffComplete(state))} onConfirm={() => void next()} />}
-      {state === "phone-token" && <HandoffActions busy={busy} completed={completedHandoffs[state] === true} action="Open ntfy account" actionAgain="Open ntfy account again" confirmation="I created the runner token" already="I already created the runner token" actionIcon="external" onAction={() => void openExternal(ntfyAccountUrl, "Pulse could not open the ntfy account page.", "ntfy opened. Create the Pulse runner token there, then return to Workshop.", () => markHandoffComplete(state))} onConfirm={() => void next()} />}
+      {state === "phone-user" && <HandoffActions busy={busy} busyAction={busyAction} completed={completedHandoffs[state] === true} action="Open ntfy account" actionAgain="Open ntfy account again" confirmation="My ntfy user is saved" already="My ntfy user is already saved" actionIcon="external" onAction={() => void openExternal(ntfyAccountUrl, "Pulse could not open the ntfy account page.", "ntfy opened. Save your Pulse user there, then return to Workshop.", () => markHandoffComplete(state))} onConfirm={() => void next()} />}
+      {state === "phone-topic" && <HandoffActions busy={busy} busyAction={busyAction} completed={completedHandoffs[state] === true} action="Copy topic" actionAgain="Copy topic again" confirmation="My topic is reserved" already="My topic is already reserved" actionIcon="copy" onAction={() => void copyText(topic, "Topic", () => markHandoffComplete(state))} onConfirm={() => void next()} />}
+      {state === "phone-subscription" && <HandoffActions busy={busy} busyAction={busyAction} completed={completedHandoffs[state] === true} action="Open ntfy for Android" actionAgain="Open ntfy for Android again" confirmation="Pulse appears in my topics" already="Pulse is already in my topics" actionIcon="external" onAction={() => void openExternal(ntfyAppUrl, "Pulse could not open the ntfy Android page.", "ntfy for Android opened. Subscribe to the Pulse topic, then return to Workshop.", () => markHandoffComplete(state))} onConfirm={() => void next()} />}
+      {state === "phone-token" && <HandoffActions busy={busy} busyAction={busyAction} completed={completedHandoffs[state] === true} action="Open ntfy account" actionAgain="Open ntfy account again" confirmation="I created the runner token" already="I already created the runner token" actionIcon="external" onAction={() => void openExternal(ntfyAccountUrl, "Pulse could not open the ntfy account page.", "ntfy opened. Create the Pulse runner token there, then return to Workshop.", () => markHandoffComplete(state))} onConfirm={() => void next()} />}
       {state === "runner-choice" && <div className="pulse-ui__choice-grid">
-        <button className="pulse-ui__choice" type="button" disabled={busy} onClick={() => void persistState("runner-deploy")}><strong>Quick setup with Netlify</strong><span>Guided · about 3 minutes</span><p>Deploy Pulse into your own Netlify account. Netlify owns any quota or billing.</p></button>
-        <button className="pulse-ui__choice" type="button" disabled={busy} onClick={() => void persistState("runner-pair")}><strong>Connect another compatible runner</strong><span>Advanced</span><p>Use an existing HTTPS deployment that implements the Pulse runner protocol.</p></button>
+        <button className="pulse-ui__choice" type="button" disabled={busy} aria-busy={busyAction === "runner-deploy" || undefined} onClick={() => void persistState("runner-deploy", "runner-deploy")}><strong>{busyAction === "runner-deploy" ? "Opening guided setup…" : "Quick setup with Netlify"}</strong><span>Guided · about 3 minutes</span><p>Deploy Pulse into your own Netlify account. Netlify owns any quota or billing.</p></button>
+        <button className="pulse-ui__choice" type="button" disabled={busy} aria-busy={busyAction === "runner-pair" || undefined} onClick={() => void persistState("runner-pair", "runner-pair")}><strong>{busyAction === "runner-pair" ? "Opening advanced setup…" : "Connect another compatible runner"}</strong><span>Advanced</span><p>Use an existing HTTPS deployment that implements the Pulse runner protocol.</p></button>
       </div>}
-      {state === "runner-deploy" && pending && <HandoffActions busy={busy} completed={completedHandoffs[state] === true} action="Open Netlify deployment" actionAgain="Open Netlify again" confirmation="I finished the deployment" already="I already finished the deployment" actionIcon="external" onAction={() => void openExternal(netlifyHandoff(pending), "Pulse could not open the Netlify deployment page.", "Netlify opened. Finish the deployment there, then return to Workshop.", () => markHandoffComplete(state))} onConfirm={() => void next()} />}
+      {state === "runner-deploy" && pending && <HandoffActions busy={busy} busyAction={busyAction} completed={completedHandoffs[state] === true} action="Open Netlify deployment" actionAgain="Open Netlify again" confirmation="I finished the deployment" already="I already finished the deployment" actionIcon="external" onAction={() => void openExternal(netlifyHandoff(pending), "Pulse could not open the Netlify deployment page.", "Netlify opened. Finish the deployment there, then return to Workshop.", () => markHandoffComplete(state))} onConfirm={() => void next()} />}
       {state === "runner-pair" && <form className="pulse-ui__setup-form" onSubmit={(event) => { event.preventDefault(); void pair(); }}>
         <label className="pulse-ui__field">Your Pulse site address<input aria-label="Pulse runner site address" type="url" placeholder="https://your-pulse-site.netlify.app" value={runnerOrigin} onChange={(event) => setRunnerOrigin(event.target.value)} required /><small>Paste the production site address shown by your provider. Workshop verifies the origin and deployment fingerprint before saving anything.</small></label>
-        <button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large" disabled={busy || !runnerOrigin.trim()} type="submit">Verify and connect this runner</button>
+        <button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large" disabled={busy || !runnerOrigin.trim()} aria-busy={busyAction === "pair" || undefined} type="submit">{busyAction === "pair" ? "Verifying and connecting…" : "Verify and connect this runner"}</button>
       </form>}
-      {state === "delivery-secret" && <HandoffActions busy={busy} completed={completedHandoffs[state] === true} action="Open my secure runner page" actionAgain="Open the secure page again" confirmation="I saved ntfy access" already="I already saved ntfy access" actionIcon="external" onAction={() => void openSecretPage().then((opened) => { if (opened) markHandoffComplete(state); })} onConfirm={() => { setStatus(""); setState("delivery-test"); }} />}
+      {state === "delivery-secret" && <HandoffActions busy={busy} busyAction={busyAction} completed={completedHandoffs[state] === true} action="Open my secure runner page" actionAgain="Open the secure page again" confirmation="I saved ntfy access" already="I already saved ntfy access" actionIcon="external" onAction={() => void openSecretPage().then((opened) => { if (opened) markHandoffComplete(state); })} onConfirm={() => { setStatus(""); setState("delivery-test"); }} />}
       {state === "delivery-test" && (status.includes("Test sent")
-        ? <div className="pulse-ui__setup-actions"><button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large" type="button" disabled={busy} onClick={() => { setStatus(""); setState("complete"); }}>I got it</button><button className="pulse-ui__button" type="button" disabled={busy} onClick={() => void sendTest()}>Send one more test</button></div>
-        : <div className="pulse-ui__setup-actions"><button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large" type="button" disabled={busy} onClick={() => void sendTest()}>Send test notification</button></div>)}
-      {state === "complete" && <div className="pulse-ui__setup-actions"><button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large" type="button" disabled={busy} onClick={() => void finish()}>Create my first reminder</button></div>}
+        ? <div className="pulse-ui__setup-actions"><button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large" type="button" disabled={busy} onClick={() => { setStatus(""); setState("complete"); }}>I got it</button><button className="pulse-ui__button" type="button" disabled={busy} aria-busy={busyAction === "send-test" || undefined} onClick={() => void sendTest()}>{busyAction === "send-test" ? "Sending…" : "Send one more test"}</button></div>
+        : <div className="pulse-ui__setup-actions"><button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large" type="button" disabled={busy} aria-busy={busyAction === "send-test" || undefined} onClick={() => void sendTest()}>{busyAction === "send-test" ? "Sending…" : "Send test notification"}</button></div>)}
+      {state === "complete" && <div className="pulse-ui__setup-actions"><button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large" type="button" disabled={busy} aria-busy={busyAction === "finish" || undefined} onClick={() => void finish()}>{busyAction === "finish" ? "Opening reminders…" : "Create my first reminder"}</button></div>}
       {state === "existing" && <ExistingSetup invoke={invoke} pending={pending} onConnected={onConnected} />}
       {state === "migration" && <div className="pulse-ui__existing">
-        <div className="pulse-ui__done-when"><SetupGlyph kind="key" /><div><strong>Update the runner, then add its setup verification key</strong><p>First update this deployment to the current Pulse release. If Netlify created a fork for you, sync that fork with the upstream Pulse repository. Then add <code>PULSE_SETUP_PUBLIC_KEY</code> in the provider settings and deploy again. This is the public half of a one-time pairing key; it cannot access your reminders or ntfy.</p><code className="pulse-ui__topic">{pending?.publicKey ?? "Preparing…"}</code>{pending && <button className="pulse-ui__text-button" type="button" onClick={() => void copyText(pending.publicKey, "Setup verification key")}><PulseIcon kind="copy" /> Copy setup verification key</button>}</div></div>
+        <div className="pulse-ui__done-when"><SetupGlyph kind="key" /><div><strong>Update the runner, then add its setup verification key</strong><p>First update this deployment to the current Pulse release. If Netlify created a fork for you, sync that fork with the upstream Pulse repository. Then add <code>PULSE_SETUP_PUBLIC_KEY</code> in the provider settings and deploy again. This is the public half of a one-time pairing key; it cannot access your reminders or ntfy.</p><code className="pulse-ui__topic">{pending?.publicKey ?? "Preparing…"}</code>{pending && <button className="pulse-ui__text-button" type="button" disabled={busy} aria-busy={busyAction === "migration-copy" || undefined} onClick={() => void copyText(pending.publicKey, "Setup verification key", undefined, "migration-copy")}><PulseIcon kind="copy" /> {busyAction === "migration-copy" ? "Copying…" : "Copy setup verification key"}</button>}</div></div>
         <div className="pulse-ui__done-when"><SetupGlyph kind="shield" /><div><strong>Your existing data stays put</strong><p>This pairs Workshop to the same runner. It does not replace reminders, history, ntfy access, or your old private-folder connection.</p></div></div>
-        <button className="pulse-ui__button pulse-ui__button--icon" type="button" onClick={() => void openExternal("https://app.netlify.com/", "Pulse could not open Netlify.")}><PulseIcon kind="external" /> Open Netlify</button>
+        <button className="pulse-ui__button pulse-ui__button--icon" type="button" disabled={busy} aria-busy={busyAction === "migration-open" || undefined} onClick={() => void openExternal("https://app.netlify.com/", "Pulse could not open Netlify.", undefined, undefined, "migration-open")}><PulseIcon kind="external" /> {busyAction === "migration-open" ? "Opening…" : "Open Netlify"}</button>
         <form className="pulse-ui__setup-form" onSubmit={(event) => { event.preventDefault(); void migrate(); }}>
           <label className="pulse-ui__field">Existing Pulse site address<input aria-label="Existing Pulse site address for migration" type="url" value={runnerOrigin} onChange={(event) => setRunnerOrigin(event.target.value)} placeholder="https://your-pulse-site.netlify.app" required /><small>Wait for the redeploy to finish, then paste the production site origin.</small></label>
-          <button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large" type="submit" disabled={busy || !pending || !runnerOrigin.trim()}>Verify and finish migration</button>
+          <button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large" type="submit" disabled={busy || !pending || !runnerOrigin.trim()} aria-busy={busyAction === "migrate" || undefined}>{busyAction === "migrate" ? "Verifying migration…" : "Verify and finish migration"}</button>
         </form>
       </div>}
-      {state === "advanced" && <div className="pulse-ui__setup-actions"><button className="pulse-ui__button" type="button" onClick={onManualSetup}>Use a private config folder</button><button className="pulse-ui__text-button" type="button" onClick={() => void openExternal("https://github.com/LindsayB610/pulse/blob/main/docs/deploy-runner.md", "Pulse could not open the runner documentation.")}><PulseIcon kind="external" /> Read the compatible-runner protocol</button></div>}
+      {state === "advanced" && <div className="pulse-ui__setup-actions"><button className="pulse-ui__button" type="button" disabled={busy} onClick={onManualSetup}>Use a private config folder</button><button className="pulse-ui__text-button" type="button" disabled={busy} aria-busy={busyAction === "advanced-docs" || undefined} onClick={() => void openExternal("https://github.com/LindsayB610/pulse/blob/main/docs/deploy-runner.md", "Pulse could not open the runner documentation.", undefined, undefined, "advanced-docs")}><PulseIcon kind="external" /> {busyAction === "advanced-docs" ? "Opening…" : "Read the compatible-runner protocol"}</button></div>}
       {error && <p className="pulse-ui__notice pulse-ui__notice--error" role="alert">{error}</p>}
       {!error && status && <p className="pulse-ui__notice pulse-ui__notice--success" role="status">{status}</p>}
     </main>
-    {confirmingStartOver && <ConfirmDialog eyebrow="Clear setup progress" title="Start Pulse setup again?" description={<><p>Workshop will discard this setup’s saved progress and one-time connection keys.</p><p>Your ntfy account, provider account, and any runner deployment already created remain yours. A runner deployed with these one-time keys will no longer pair; you may need to delete or redeploy it in your provider account.</p></>} confirmLabel="Clear setup progress" cancelLabel="Keep this setup" busy={busy} error={error} onCancel={() => { setConfirmingStartOver(false); setError(""); }} onConfirm={() => { void startOver().then((cleared) => { if (cleared) setConfirmingStartOver(false); }); }} />}
+    {confirmingStartOver && <ConfirmDialog eyebrow="Clear setup progress" title="Start Pulse setup again?" description={<><p>Workshop will discard this setup’s saved progress and one-time connection keys.</p><p>Your ntfy account, provider account, and any runner deployment already created remain yours. A runner deployed with these one-time keys will no longer pair; you may need to delete or redeploy it in your provider account.</p></>} confirmLabel="Clear setup progress" busyLabel="Clearing…" cancelLabel="Keep this setup" busy={busy} error={error} onCancel={() => { setConfirmingStartOver(false); setError(""); }} onConfirm={() => { void startOver().then((cleared) => { if (cleared) setConfirmingStartOver(false); }); }} />}
   </section>;
 }
 
-function HandoffActions({ busy = false, completed, action, actionAgain, confirmation, already, actionIcon, onAction, onConfirm }: {
+function HandoffActions({ busy = false, busyAction, completed, action, actionAgain, confirmation, already, actionIcon, onAction, onConfirm }: {
   busy?: boolean;
+  busyAction?: string | null;
   completed: boolean;
   action: string;
   actionAgain: string;
@@ -330,11 +335,13 @@ function HandoffActions({ busy = false, completed, action, actionAgain, confirma
   onAction: () => void;
   onConfirm: () => void;
 }): React.ReactElement {
-  const actionLabel = <>{actionIcon && <PulseIcon kind={actionIcon} />}{completed ? actionAgain : action}</>;
+  const actionIsBusy = busy && busyAction === "handoff-action";
+  const confirmIsBusy = busy && busyAction === "continue";
+  const actionLabel = <>{actionIcon && <PulseIcon kind={actionIcon} />}{actionIsBusy ? (actionIcon === "copy" ? "Copying…" : "Opening…") : completed ? actionAgain : action}</>;
   return <div className="pulse-ui__setup-actions">
     {completed
-      ? <><button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large" type="button" disabled={busy} onClick={onConfirm}>{confirmation}</button><button className="pulse-ui__button pulse-ui__button--icon" type="button" disabled={busy} onClick={onAction}>{actionLabel}</button></>
-      : <><button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large pulse-ui__button--icon" type="button" disabled={busy} onClick={onAction}>{actionLabel}</button><button className="pulse-ui__button" type="button" disabled={busy} onClick={onConfirm}>{already}</button></>}
+      ? <><button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large" type="button" disabled={busy} aria-busy={confirmIsBusy || undefined} onClick={onConfirm}>{confirmIsBusy ? "Saving…" : confirmation}</button><button className="pulse-ui__button pulse-ui__button--icon" type="button" disabled={busy} aria-busy={actionIsBusy || undefined} onClick={onAction}>{actionLabel}</button></>
+      : <><button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large pulse-ui__button--icon" type="button" disabled={busy} aria-busy={actionIsBusy || undefined} onClick={onAction}>{actionLabel}</button><button className="pulse-ui__button" type="button" disabled={busy} aria-busy={confirmIsBusy || undefined} onClick={onConfirm}>{confirmIsBusy ? "Saving…" : already}</button></>}
   </div>;
 }
 
@@ -343,35 +350,39 @@ function ExistingSetup({ invoke, pending, onConnected }: { invoke: HostInvoke; p
   const [invitation, setInvitation] = useState("");
   const [status, setStatus] = useState("Creating this Mac’s one-time connection id…");
   const [busy, setBusy] = useState(false);
+  const [busyAction, setBusyAction] = useState<"copy" | "connect" | null>(null);
+  const busyRef = useRef(false);
   React.useEffect(() => { if (pending) setStatus(""); }, [pending]);
   const copyInstallationId = async () => {
-    if (!pending || busy) return;
-    setBusy(true); setStatus("");
+    if (!pending || busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true); setBusyAction("copy"); setStatus("");
     try {
       if (!window.navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
       await window.navigator.clipboard.writeText(pending.installationId);
       setStatus("Installation id copied.");
     } catch {
       setStatus("Pulse could not copy this installation id.");
-    } finally { setBusy(false); }
+    } finally { busyRef.current = false; setBusy(false); setBusyAction(null); }
   };
   const connect = async () => {
-    if (!pending) return;
-    setBusy(true); setStatus("");
+    if (!pending || busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true); setBusyAction("connect"); setStatus("");
     try {
       await completePulseExistingSetup(invoke, pending.setupId, normalizeRunnerOrigin(endpoint), invitation.trim());
       onConnected(await createManagedWorkshopSecureServiceRequester(invoke));
     } catch (caught) {
       setStatus(message(caught, "The invitation was rejected or expired."));
-    } finally { setBusy(false); }
+    } finally { busyRef.current = false; setBusy(false); setBusyAction(null); }
   };
   return <div className="pulse-ui__existing">
-    <div className="pulse-ui__done-when"><SetupGlyph kind="laptop" /><div><strong>On this Mac</strong><p>This Mac’s installation id: <code>{pending?.installationId ?? "Preparing…"}</code></p>{pending && <button className="pulse-ui__text-button" type="button" disabled={busy} onClick={() => void copyInstallationId()}><PulseIcon kind="copy" /> Copy installation id</button>}</div></div>
+    <div className="pulse-ui__done-when"><SetupGlyph kind="laptop" /><div><strong>On this Mac</strong><p>This Mac’s installation id: <code>{pending?.installationId ?? "Preparing…"}</code></p>{pending && <button className="pulse-ui__text-button" type="button" disabled={busy} aria-busy={busyAction === "copy" || undefined} onClick={() => void copyInstallationId()}><PulseIcon kind="copy" /> {busyAction === "copy" ? "Copying…" : "Copy installation id"}</button>}</div></div>
     <div className="pulse-ui__done-when"><SetupGlyph kind="link" /><div><strong>On a connected Mac</strong><p>Open Pulse Settings → Add another Mac. Paste the installation id and copy the ten-minute invitation it creates.</p></div></div>
     <form className="pulse-ui__setup-form" onSubmit={(event) => { event.preventDefault(); void connect(); }}>
       <label className="pulse-ui__field">Existing Pulse site address<input aria-label="Existing Pulse runner site address" type="url" value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="https://your-pulse-site.netlify.app" required /></label>
       <label className="pulse-ui__field">Ten-minute invitation code<input aria-label="Pulse invitation code" value={invitation} onChange={(event) => setInvitation(event.target.value)} required /></label>
-      <button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large" type="submit" disabled={busy || !pending || !endpoint.trim() || !invitation.trim()}>Connect this Mac</button>
+      <button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--large" type="submit" disabled={busy || !pending || !endpoint.trim() || !invitation.trim()} aria-busy={busyAction === "connect" || undefined}>{busyAction === "connect" ? "Connecting…" : "Connect this Mac"}</button>
     </form>
     {status && <p className="pulse-ui__notice" role="status">{status}</p>}
   </div>;

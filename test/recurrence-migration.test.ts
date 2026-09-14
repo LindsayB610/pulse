@@ -147,6 +147,7 @@ test("migration rejects unknown, duplicate, or already-v2 definitions", () => {
 });
 
 test("server-owned revisions distinguish content edits from series edits", () => {
+  const now = new Date("2026-08-27T12:00:00.000Z");
   const [draft] = parsePulseDefinitions([{
     id: "revisioned",
     title: "Revisioned",
@@ -159,7 +160,7 @@ test("server-owned revisions distinguish content edits from series edits", () =>
       timezone: "UTC",
     },
   }]);
-  const created = canonicalCreateDefinition(draft!);
+  const created = canonicalCreateDefinition(draft!, now);
   assert.equal(created.definitionRevision, 1);
   assert.equal(created.seriesRevision, 1);
 
@@ -223,10 +224,11 @@ test("a date-ending series becomes complete while paused after its last eligible
 });
 
 test("canonical definition guards reject legacy, past one-time, and unbounded updates", () => {
-  assert.throws(() => canonicalCreateDefinition(legacy[0]!, new Date("2026-08-27T12:00:00.000Z")), /schedule version 2/);
+  const now = new Date("2026-08-27T12:00:00.000Z");
+  assert.throws(() => canonicalCreateDefinition(legacy[0]!, now), /schedule version 2/);
   const [past] = parsePulseDefinitions([{ id: "past", title: "Past", active: true, schedule: { version: 2, type: "once", date: "2026-08-26", time: "09:00", timezone: "UTC" } }]);
-  assert.throws(() => canonicalCreateDefinition(past!, new Date("2026-08-27T12:00:00.000Z")), /future/);
-  const bounded = { ...canonicalCreateDefinition(parsePulseDefinitions([{ id: "bounded", title: "Bounded", active: true, schedule: { version: 2, type: "once", date: "2026-08-30", time: "09:00", timezone: "UTC" } }])[0]!), definitionRevision: 1 };
+  assert.throws(() => canonicalCreateDefinition(past!, now), /future/);
+  const bounded = { ...canonicalCreateDefinition(parsePulseDefinitions([{ id: "bounded", title: "Bounded", active: true, schedule: { version: 2, type: "once", date: "2026-08-30", time: "09:00", timezone: "UTC" } }])[0]!, now), definitionRevision: 1 };
   assert.throws(() => canonicalUpdateDefinition(bounded, legacy[0]!, 1), /schedule version 2/);
 });
 

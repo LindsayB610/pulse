@@ -52,6 +52,13 @@ named deletion with retained history, and all-or-nothing legacy migration.
 Review the recurrence editor at desktop, narrow, 200% zoom, inherited theme,
 and standalone fallback.
 
+Activate every asynchronous control with a delayed response. The clicked
+control must immediately change to a specific progress label, expose
+`aria-busy`, reject duplicate activation, and end in a visible success or
+recovery state. Hover, active, focus, and disabled feedback must cover every
+button family, including tabs, presets, weekday selectors, text actions, and
+destructive confirmations.
+
 ## Data and ownership
 
 - Create a backup, then export/restore a disposable state copy and verify

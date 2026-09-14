@@ -22,6 +22,7 @@ test("normal Pulse browser checks use the shared Playwright harness and never fa
   }
 
   const harness = readFileSync(new URL("../scripts/headless-browser.mjs", import.meta.url), "utf8");
+  const testRunner = readFileSync(new URL("../scripts/run-mjs-tests.mjs", import.meta.url), "utf8");
   const rootManifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
   assert.match(harness, /headless:\s*true/, "Playwright must always launch in headless mode");
   assert.match(harness, /process\.env\.PULSE_TEST_CHROME/, "a system browser remains an explicit opt-in only");
@@ -29,8 +30,9 @@ test("normal Pulse browser checks use the shared Playwright harness and never fa
   assert.match(harness, /finally\s*\{[\s\S]*closeHeadlessBrowser/, "normal and exceptional paths must close the browser");
   assert.match(harness, /\["SIGINT",\s*"SIGTERM"\]/, "interrupt and termination paths must close active browsers");
   assert.match(harness, /pendingLaunches/, "termination must also close a browser whose launch is still resolving");
-  assert.match(rootManifest.scripts.test, /--test-concurrency=1/, "normal checks must not stampede macOS with competing browser processes");
-  assert.match(rootManifest.scripts["test:coverage"], /--test-concurrency=1/, "coverage checks must keep the same bounded browser lifecycle");
+  assert.match(rootManifest.scripts.test, /run-mjs-tests\.mjs/, "normal checks must use the bounded test orchestrator");
+  assert.match(rootManifest.scripts["test:coverage"], /run-mjs-tests\.mjs --coverage/, "coverage checks must use the bounded test orchestrator");
+  assert.match(testRunner, /--test-concurrency=1/, "the orchestrator must not stampede macOS with competing browser processes");
 });
 
 test("SIGTERM closes the managed browser process and leaves no marked child behind", { timeout: 20_000 }, async () => {

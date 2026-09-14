@@ -200,8 +200,16 @@ Time          [ 4:30 PM      ]
 Rules:
 
 - `Repeat this reminder` is unchecked for every new reminder.
+- Date uses a Pulse-owned desktop calendar rather than relying on the embedded
+  browser's inconsistent native picker. The entire field opens the calendar;
+  the selected date is written in plain language; previous month, next month,
+  Today, and direct month/year selection are explicit controls; and arrow keys,
+  Home/End, Page Up/Page Down, Enter, and Escape provide complete keyboard
+  operation.
 - Date defaults to today only when the selected local time is still in the
   future; otherwise it defaults to tomorrow.
+- Past days are unavailable for a new reminder. Existing schedules may retain
+  and display their historical start date while being edited.
 - Timezone defaults to the Mac's resolved IANA timezone and remains visible in
   the schedule section, not buried behind recurrence.
 - A one-time date/time must be in the future at save time.

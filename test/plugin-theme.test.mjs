@@ -65,14 +65,28 @@ test("standalone component-state fallbacks retain the exact pre-inheritance valu
     ["--pulse-host-hover-highlight", "var(--workshop-text, transparent)"],
   ];
   for (const [name, value] of exactFallbacks) assert.ok(styles.includes(`${name}: ${value};`), `${name} must preserve ${value}`);
-  assert.match(styles, /\.pulse-ui__tab:hover \{[^}]*var\(--pulse-tab-hover-surface\)/s);
+  assert.match(styles, /\.pulse-ui__tab:hover:not\(:disabled\) \{[^}]*var\(--pulse-tab-hover-surface\)/s);
   assert.match(styles, /\.pulse-ui__tab\[aria-current='page'\] \{[^}]*var\(--pulse-strong-text\)/s);
   assert.match(styles, /\.pulse-ui__field input, \.pulse-ui__field select \{[^}]*var\(--pulse-strong-text\)/s);
   assert.match(styles, /\.pulse-ui__preset\[aria-pressed='true'\] \{[^}]*var\(--pulse-strong-text\)[^}]*var\(--pulse-accent-border-strong\)/s);
   assert.match(styles, /\.pulse-ui__status-dot \{[^}]*var\(--pulse-success-halo\)/s);
-  assert.match(styles, /\.pulse-ui__button:hover \{[^}]*var\(--pulse-host-hover-highlight\)/s);
+  assert.match(styles, /\.pulse-ui__button:hover:not\(:disabled\) \{[^}]*var\(--pulse-host-hover-highlight\)/s);
   assert.match(styles, /\.pulse-ui__field input:hover, \.pulse-ui__field select:hover \{[^}]*var\(--pulse-host-hover-highlight\)/s);
-  assert.match(styles, /\.pulse-ui__button--primary:hover \{[^}]*var\(--pulse-host-hover-highlight\)/s);
+  assert.match(styles, /\.pulse-ui__button--primary:hover:not\(:disabled\) \{[^}]*var\(--pulse-host-hover-highlight\)/s);
+});
+
+test("every Pulse control family has hover, pressed, disabled, focus, and busy feedback", () => {
+  assert.match(styles, /\.pulse-ui :focus-visible \{[^}]*--pulse-focus-ring/s);
+  assert.match(styles, /\.pulse-ui button\[aria-busy='true'\] \{[^}]*cursor: progress;[^}]*opacity:/s);
+  assert.match(styles, /\.pulse-ui button\[aria-busy='true'\]::before \{[^}]*animation: pulse-ui-spin/s);
+  assert.match(styles, /\.pulse-ui__button:active:not\(:disabled\)/);
+  assert.match(styles, /\.pulse-ui__tab:active:not\(:disabled\)/);
+  assert.match(styles, /\.pulse-ui__preset:hover:not\(:disabled\)/);
+  assert.match(styles, /\.pulse-ui__weekdays button:hover:not\(:disabled\)/);
+  assert.match(styles, /\.pulse-ui__text-button:hover:not\(:disabled\)/);
+  assert.match(styles, /\.pulse-ui__choice:hover:not\(:disabled\)/);
+  assert.match(styles, /\.pulse-ui__choice-row > label:hover/);
+  assert.match(styles, /\.pulse-ui__finished > summary:hover/);
 });
 
 test("all production plugin selectors remain scoped to Pulse", () => {

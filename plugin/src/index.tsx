@@ -15,6 +15,7 @@ import type { SecureServiceRequester } from "./service.js";
 import { pulseStyles } from "./styles.js";
 import { PulseSetupWizard } from "./setup-wizard.js";
 import { ConfirmDialog } from "./confirm-dialog.js";
+import { PulseDatePicker } from "./date-picker.js";
 import { PulseIcon } from "./icons.js";
 export { PulseSetupWizard, netlifyHandoff, normalizeRunnerOrigin } from "./setup-wizard.js";
 export { setupBack, setupForward, setupProgress, setupStateFromNative, type SetupState } from "./setup-machine.js";
@@ -134,6 +135,13 @@ function titleCase(value: string): string {
   return value ? value[0].toUpperCase() + value.slice(1) : value;
 }
 
+function dateYearsAfter(value: string, years: number): string {
+  const [year, month, day] = value.split("-").map(Number);
+  const targetYear = year! + years;
+  const lastDay = new Date(Date.UTC(targetYear, month!, 0)).getUTCDate();
+  return `${targetYear}-${String(month).padStart(2, "0")}-${String(Math.min(day!, lastDay)).padStart(2, "0")}`;
+}
+
 function minutesLabel(value?: number): string {
   if (!value) return "30 minutes";
   if (value === 1440) return "1 day";
@@ -186,10 +194,10 @@ function runnerLabel(snapshot: PulseSnapshot): string {
   return "Status unavailable";
 }
 
-function RouteTabs({ active, onSelect, onRefresh }: { active: RouteId; onSelect: (route: RouteId) => void; onRefresh: () => void }): React.ReactElement {
+function RouteTabs({ active, refreshing, onSelect, onRefresh }: { active: RouteId; refreshing: boolean; onSelect: (route: RouteId) => void; onRefresh: () => void }): React.ReactElement {
   return <nav className="pulse-ui__nav" aria-label="Pulse sections">
     {routes.map((route) => <button key={route.id} className="pulse-ui__tab" type="button" aria-current={active === route.id ? "page" : undefined} onClick={() => onSelect(route.id)}>{route.label}</button>)}
-    <button className="pulse-ui__tab pulse-ui__refresh" type="button" onClick={onRefresh}><PulseIcon kind="refresh" /> Refresh</button>
+    <button className="pulse-ui__tab pulse-ui__refresh" type="button" disabled={refreshing} aria-busy={refreshing || undefined} onClick={onRefresh}><PulseIcon kind="refresh" /> {refreshing ? "Refreshing…" : "Refresh"}</button>
   </nav>;
 }
 
@@ -208,7 +216,9 @@ export function WorkshopToolView({ activeRouteId = "reminders", workspaceRoot, r
   const [connectionAttempt, setConnectionAttempt] = useState(0);
   const [checkingConnection, setCheckingConnection] = useState(true);
   const [connectionStatus, setConnectionStatus] = useState("Checking for an existing Pulse connection…");
+  const connectionBusyRef = useRef(false);
   const didRestoreRoot = useRef(false);
+  useEffect(() => { if (!checkingConnection) connectionBusyRef.current = false; }, [checkingConnection]);
   useEffect(() => setRoute(normalizeRoute(activeRouteId)), [activeRouteId]);
   useEffect(() => {
     if (workspaceRoot || didRestoreRoot.current || !rememberedRoot.current) return;
@@ -278,6 +288,10 @@ export function WorkshopToolView({ activeRouteId = "reminders", workspaceRoot, r
     window.dispatchEvent(new CustomEvent("workshop:route-selected", { detail: { toolId: "pulse", routeId: next, path: `/pulse/${next}` } }));
   };
   const connect = () => {
+    if (connectionBusyRef.current) return;
+    connectionBusyRef.current = true;
+    setCheckingConnection(true);
+    setConnectionStatus("Connecting Pulse…");
     const selectedRoot = root.trim();
     if (selectedRoot) {
       rememberedRoot.current = selectedRoot;
@@ -369,7 +383,10 @@ export function PulseManagementView({ request, activeRouteId = "reminders", work
   const [renewing, setRenewing] = useState(false);
   const [deleting, setDeleting] = useState<PulseDefinition | null>(null);
   const [mutationBusy, setMutationBusy] = useState(false);
+  const [mutationAction, setMutationAction] = useState<{ kind: "pause" | "resume" | "delete"; pulseId: string } | null>(null);
   const mutationBusyRef = useRef(false);
+  const manualRefreshBusyRef = useRef(false);
+  const [manualRefreshing, setManualRefreshing] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   useEffect(() => setRoute(normalizeRoute(activeRouteId)), [activeRouteId]);
   const refresh = useCallback(async (successMessage = "") => {
@@ -400,6 +417,13 @@ export function PulseManagementView({ request, activeRouteId = "reminders", work
     }
   }, [service]);
   useEffect(() => { void refresh(); }, [refresh]);
+  const manualRefresh = async () => {
+    if (manualRefreshBusyRef.current) return;
+    manualRefreshBusyRef.current = true;
+    setManualRefreshing(true);
+    try { await refresh("Pulse refreshed."); }
+    finally { manualRefreshBusyRef.current = false; setManualRefreshing(false); }
+  };
   const selectRoute = (next: RouteId) => {
     setRoute(next);
     setEditing(null);
@@ -411,17 +435,19 @@ export function PulseManagementView({ request, activeRouteId = "reminders", work
     if (mutationBusyRef.current) return;
     mutationBusyRef.current = true;
     setMutationBusy(true);
+    setMutationAction({ kind: pulse.active ? "pause" : "resume", pulseId: pulse.id });
     setError("");
     try {
       await service.update(pulse.id, { ...pulse, active: !pulse.active });
       await refresh(pulse.active ? "Reminder paused." : "Reminder resumed.");
     } catch { setError("Pulse could not update the reminder."); }
-    finally { mutationBusyRef.current = false; setMutationBusy(false); }
+    finally { mutationBusyRef.current = false; setMutationBusy(false); setMutationAction(null); }
   };
   const remove = async (pulse: PulseDefinition) => {
     if (mutationBusyRef.current) return;
     mutationBusyRef.current = true;
     setMutationBusy(true);
+    setMutationAction({ kind: "delete", pulseId: pulse.id });
     setError("");
     setDeleteError("");
     try {
@@ -433,10 +459,10 @@ export function PulseManagementView({ request, activeRouteId = "reminders", work
       const failure = "Pulse could not delete the reminder.";
       setError(failure);
       setDeleteError(failure);
-    } finally { mutationBusyRef.current = false; setMutationBusy(false); }
+    } finally { mutationBusyRef.current = false; setMutationBusy(false); setMutationAction(null); }
   };
   return <>
-    <RouteTabs active={route} onSelect={selectRoute} onRefresh={() => void refresh("Pulse refreshed.")} />
+    <RouteTabs active={route} refreshing={manualRefreshing} onSelect={selectRoute} onRefresh={() => void manualRefresh()} />
     {route === "reminders" && snapshot.recurrenceMigration?.required && !loading
       ? <RecurrenceMigrationPage snapshot={snapshot} onMigrate={async (classifications) => {
           await service.migrateRecurrence(classifications);
@@ -464,12 +490,12 @@ export function PulseManagementView({ request, activeRouteId = "reminders", work
             throw failure;
           }
         }} />
-      : <RemindersPage snapshot={snapshot} loading={loading} mutationBusy={mutationBusy} onNew={() => { setStatus(""); setError(""); setRenewing(false); setEditing("new"); }} onEdit={(pulse) => { setStatus(""); setError(""); setRenewing(false); setEditing(pulse); }} onRenew={(pulse) => { setStatus(""); setError(""); setRenewing(true); setEditing(pulse); }} onToggle={(pulse) => void toggle(pulse)} />)}
+      : <RemindersPage snapshot={snapshot} loading={loading} mutationBusy={mutationBusy} mutationAction={mutationAction} onNew={() => { setStatus(""); setError(""); setRenewing(false); setEditing("new"); }} onEdit={(pulse) => { setStatus(""); setError(""); setRenewing(false); setEditing(pulse); }} onRenew={(pulse) => { setStatus(""); setError(""); setRenewing(true); setEditing(pulse); }} onToggle={(pulse) => void toggle(pulse)} />)}
     {route === "history" && <HistoryPage snapshot={snapshot} loading={loading} />}
     {route === "settings" && <SettingsPage snapshot={snapshot} request={request} workspaceRoot={workspaceRoot} onWorkspaceRootChange={onWorkspaceRootChange} onRepairDelivery={onRepairDelivery} onDisconnect={onDisconnect} onMigrateConnection={onMigrateConnection} />}
     {error && <p className="pulse-ui__notice" role="alert">{error}</p>}
     {!error && status && <p className="pulse-ui__notice" role="status">{status}</p>}
-    {deleting && <DeleteDialog pulse={deleting} busy={mutationBusy} error={deleteError} onCancel={() => { setDeleting(null); setDeleteError(""); }} onConfirm={() => void remove(deleting)} />}
+    {deleting && <DeleteDialog pulse={deleting} busy={mutationAction?.kind === "delete" && mutationAction.pulseId === deleting.id} error={deleteError} onCancel={() => { setDeleting(null); setDeleteError(""); }} onConfirm={() => void remove(deleting)} />}
   </>;
 }
 
@@ -478,30 +504,31 @@ function RecurrenceMigrationPage({ snapshot, onMigrate }: { snapshot: PulseSnaps
   const [choices, setChoices] = useState<Record<string, "once" | "repeat">>({});
   const [counts, setCounts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
   const [error, setError] = useState("");
   const ready = legacy.length > 0 && legacy.every((pulse) => choices[pulse.id]);
   return <section className="pulse-ui__page" aria-labelledby="pulse-migration-heading">
     <header className="pulse-ui__page-head"><div><p className="pulse-ui__eyebrow">One-time update</p><h2 id="pulse-migration-heading">Finish updating your reminder schedules</h2><p className="pulse-ui__lede pulse-ui__lede--wide">Old Pulse reminders repeated forever without asking. Choose what each one should do. Nothing changes until every choice saves together.</p></div></header>
     <form className="pulse-ui__migration" onSubmit={(event) => {
       event.preventDefault();
-      if (!ready || busy) return;
-      setBusy(true); setError("");
+      if (!ready || busyRef.current) return;
+      busyRef.current = true; setBusy(true); setError("");
       const classifications = legacy.map((pulse) => choices[pulse.id] === "once"
         ? { id: pulse.id, mode: "once" }
         : { id: pulse.id, mode: "repeat", end: { type: "count", occurrences: Number(counts[pulse.id] ?? 30) } });
-      void onMigrate(classifications).catch((caught) => setError(caught instanceof Error ? caught.message : "Pulse could not update the schedules.")).finally(() => setBusy(false));
+      void onMigrate(classifications).catch((caught) => setError(caught instanceof Error ? caught.message : "Pulse could not update the schedules.")).finally(() => { busyRef.current = false; setBusy(false); });
     }}>
       {legacy.map((pulse) => <fieldset className="pulse-ui__migration-card" key={pulse.id}><legend>{pulse.title}</legend><p>{scheduleLabel(pulse)}</p><div className="pulse-ui__choice-row">
         <label><input type="radio" name={`migration-${pulse.id}`} checked={choices[pulse.id] === "once"} onChange={() => setChoices((current) => ({ ...current, [pulse.id]: "once" }))} /><span><strong>Runs once</strong><small>Keep the current or next reminder, then finish permanently.</small></span></label>
         <label><input type="radio" name={`migration-${pulse.id}`} checked={choices[pulse.id] === "repeat"} onChange={() => setChoices((current) => ({ ...current, [pulse.id]: "repeat" }))} /><span><strong>Repeats</strong><small>Keep the weekly schedule as a finite set.</small></span></label>
       </div>{choices[pulse.id] === "repeat" && <label className="pulse-ui__field pulse-ui__migration-count">Number of reminders<input type="number" min="1" max="365" value={counts[pulse.id] ?? "30"} onChange={(event) => setCounts((current) => ({ ...current, [pulse.id]: event.target.value }))} /><small>30 is the recommended weekly set. You can add another set when it ends.</small></label>}</fieldset>)}
       {error && <p className="pulse-ui__notice" role="alert">{error}</p>}
-      <div className="pulse-ui__migration-footer"><p>{ready ? "Ready to update all schedules." : `Choose an option for ${legacy.filter((pulse) => !choices[pulse.id]).length} reminder${legacy.filter((pulse) => !choices[pulse.id]).length === 1 ? "" : "s"}.`}</p><button className="pulse-ui__button pulse-ui__button--primary" type="submit" disabled={!ready || busy}>{busy ? "Updating…" : "Update all schedules"}</button></div>
+      <div className="pulse-ui__migration-footer"><p>{ready ? "Ready to update all schedules." : `Choose an option for ${legacy.filter((pulse) => !choices[pulse.id]).length} reminder${legacy.filter((pulse) => !choices[pulse.id]).length === 1 ? "" : "s"}.`}</p><button className="pulse-ui__button pulse-ui__button--primary" type="submit" disabled={!ready || busy} aria-busy={busy || undefined}>{busy ? "Updating…" : "Update all schedules"}</button></div>
     </form>
   </section>;
 }
 
-function RemindersPage({ snapshot, loading, mutationBusy, onNew, onEdit, onRenew, onToggle }: { snapshot: PulseSnapshot; loading: boolean; mutationBusy: boolean; onNew: () => void; onEdit: (pulse: PulseDefinition) => void; onRenew: (pulse: PulseDefinition) => void; onToggle: (pulse: PulseDefinition) => void }): React.ReactElement {
+function RemindersPage({ snapshot, loading, mutationBusy, mutationAction, onNew, onEdit, onRenew, onToggle }: { snapshot: PulseSnapshot; loading: boolean; mutationBusy: boolean; mutationAction: { kind: "pause" | "resume" | "delete"; pulseId: string } | null; onNew: () => void; onEdit: (pulse: PulseDefinition) => void; onRenew: (pulse: PulseDefinition) => void; onToggle: (pulse: PulseDefinition) => void }): React.ReactElement {
   const isFinished = (pulse: PulseDefinition) => snapshot.seriesProgress?.[pulse.id]?.complete === true;
   const activeCount = snapshot.pulses.filter((pulse) => pulse.active && !isFinished(pulse)).length;
   const orderedPulses = [...snapshot.pulses].sort((left, right) => {
@@ -534,7 +561,7 @@ function RemindersPage({ snapshot, loading, mutationBusy, onNew, onEdit, onRenew
               : progress?.endsOn ? `ends ${progress.endsOn}` : "";
           return <article className={`pulse-ui__card${pulse.active ? "" : " pulse-ui__card--paused"}`} key={pulse.id}>
             <div className="pulse-ui__card-main"><div className="pulse-ui__card-title-row"><h3>{pulse.title}</h3><span className={`pulse-ui__badge${isDue || occurrence?.final ? " pulse-ui__badge--due" : ""}`}>{!pulse.active ? "Paused" : occurrence?.final ? "Final reminder" : isDue ? "Due now" : "Active"}</span></div><p className="pulse-ui__schedule">{scheduleLabel(pulse)}{occurrence && !isDue ? ` · next ${formatDate(occurrence.dueAt)}` : ""}</p>{progressText && <p className="pulse-ui__series-progress">{progressText}</p>}<p className="pulse-ui__policy">Snooze or no action: {minutesLabel(pulse.notificationPolicy?.snoozeEveryMinutes)}</p></div>
-            <div className="pulse-ui__actions"><button className="pulse-ui__button" type="button" disabled={mutationBusy} onClick={() => onToggle(pulse)}>{pulse.active ? "Pause" : "Resume"}</button><button className="pulse-ui__button" type="button" disabled={mutationBusy} onClick={() => onEdit(pulse)}>Edit</button></div>
+            <div className="pulse-ui__actions"><button className="pulse-ui__button" type="button" disabled={mutationBusy} aria-busy={mutationAction?.pulseId === pulse.id && (mutationAction.kind === "pause" || mutationAction.kind === "resume") || undefined} onClick={() => onToggle(pulse)}>{mutationAction?.pulseId === pulse.id && mutationAction.kind === "pause" ? "Pausing…" : mutationAction?.pulseId === pulse.id && mutationAction.kind === "resume" ? "Resuming…" : pulse.active ? "Pause" : "Resume"}</button><button className="pulse-ui__button" type="button" disabled={mutationBusy} onClick={() => onEdit(pulse)}>Edit</button></div>
           </article>;
         })}</div>{finishedPulses.length > 0 && <details className="pulse-ui__finished"><summary>Finished <span>{finishedPulses.length}</span></summary><div className="pulse-ui__list">{finishedPulses.map((pulse) => <article className="pulse-ui__card pulse-ui__card--finished" key={pulse.id}><div className="pulse-ui__card-main"><h3>{pulse.title}</h3><p className="pulse-ui__schedule">{scheduleLabel(pulse)}</p><p className="pulse-ui__policy">This set is complete. It will not restart by itself.</p></div><button className="pulse-ui__button" type="button" onClick={() => onRenew(pulse)}>{pulse.schedule?.type === "once" ? "Schedule again" : "Add another set"}</button></article>)}</div></details>}</>}
   </section>;
@@ -561,6 +588,7 @@ function ReminderEditor({ pulse, openOccurrence: activeOccurrence, renewing = fa
   const [saving, setSaving] = useState(false);
   const [pending, setPending] = useState<PulseDefinition | null>(null);
   const savingRef = useRef(false);
+  const weekdaysTouchedRef = useRef(Boolean(savedSchedule?.daysOfWeek));
   const formRef = useRef<HTMLFormElement>(null);
   useEffect(() => {
     if (endDate < date) setEndDate(date);
@@ -568,6 +596,12 @@ function ReminderEditor({ pulse, openOccurrence: activeOccurrence, renewing = fa
   const clearValidation = () => {
     formRef.current?.querySelectorAll("[aria-invalid='true']").forEach((element) => element.removeAttribute("aria-invalid"));
     setFormError("");
+  };
+  const changeDate = (next: string) => {
+    setDate(next);
+    if (!weekdaysTouchedRef.current) {
+      setSelectedDays([daysOfWeek[new Date(`${next}T00:00:00Z`).getUTCDay()] ?? "sunday"]);
+    }
   };
   const showFormError = (caught: unknown) => {
     const message = caught instanceof Error ? caught.message : "Check the reminder details and try again.";
@@ -623,14 +657,14 @@ function ReminderEditor({ pulse, openOccurrence: activeOccurrence, renewing = fa
     <header className="pulse-ui__page-head"><div><p className="pulse-ui__eyebrow">{renewing ? "New bounded set" : pulse ? "Edit reminder" : "New reminder"}</p><h2 id="pulse-editor-heading">{renewing ? `Add another set for ${pulse?.title}` : pulse ? `Edit ${pulse.title}` : "Create reminder"}</h2><p className="pulse-ui__lede">Choose when the first notification appears and how Pulse should follow up.</p></div></header>
     <form ref={formRef} className="pulse-ui__panel pulse-ui__form" onChange={() => { if (formError) clearValidation(); }} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
       <label className="pulse-ui__field">Reminder name<input data-field="name" aria-label="Reminder name" autoFocus disabled={saving} value={title} placeholder="What needs your attention?" onChange={(event) => setTitle(event.target.value)} /></label>
-      <div className="pulse-ui__form-grid"><label className="pulse-ui__field">Date<input data-field="date" aria-label="Reminder date" type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label><label className="pulse-ui__field">Time<input data-field="time" aria-label="Reminder time" type="time" value={time} onChange={(event) => setTime(event.target.value)} /></label></div>
+      <div className="pulse-ui__form-grid"><PulseDatePicker label="Date" ariaLabel="Reminder date" dataField="date" value={date} min={pulse && !renewing ? undefined : defaultReminderDate(new Date(), timezone, "23:59")} onChange={changeDate} disabled={saving} /><label className="pulse-ui__field">Time<input data-field="time" aria-label="Reminder time" type="time" value={time} onChange={(event) => setTime(event.target.value)} /></label></div>
       <div className="pulse-ui__repeat-choice"><label><input type="checkbox" checked={repeat} aria-expanded={repeat} aria-controls="pulse-recurrence-panel" onChange={(event) => { setRepeat(event.target.checked); if (event.target.checked && !savedSchedule?.end) setEndCount(String(recurrenceDefaults[frequency])); }} /><span><strong>Repeat this reminder</strong><small>{repeat ? "Set a finite schedule and ending." : "Off: Pulse runs once, then moves it to Finished."}</small></span></label></div>
       {repeat && <fieldset id="pulse-recurrence-panel" className="pulse-ui__recurrence"><legend>Repeat schedule</legend>
         <div className="pulse-ui__form-grid"><label className="pulse-ui__field">Repeats<select aria-label="Repeat frequency" value={frequency} onChange={(event) => { const next = event.target.value as Frequency; setFrequency(next); setEndCount(String(recurrenceDefaults[next])); }}><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="yearly">Yearly</option></select></label><label className="pulse-ui__field">Every<input data-field="interval" aria-label="Repeat interval" type="number" min="1" max={frequency === "daily" ? 365 : frequency === "weekly" ? 52 : frequency === "monthly" ? 60 : 5} value={interval} onChange={(event) => setIntervalValue(event.target.value)} /><small>{frequency === "daily" ? "days" : frequency === "weekly" ? "weeks" : frequency === "monthly" ? "months" : "years"}</small></label></div>
-        {frequency === "daily" && <button className="pulse-ui__button pulse-ui__weekday-preset" type="button" onClick={() => { setFrequency("weekly"); setIntervalValue("1"); setSelectedDays(["monday", "tuesday", "wednesday", "thursday", "friday"]); setEndCount(String(recurrenceDefaults.weekly)); }}>Use weekdays (Monday–Friday)</button>}
-        {frequency === "weekly" && <fieldset className="pulse-ui__weekday-fieldset"><legend>On</legend><div className="pulse-ui__weekdays" data-field="weekdays" tabIndex={-1}>{daysOfWeek.map((day) => <button key={day} type="button" aria-label={titleCase(day)} aria-pressed={selectedDays.includes(day)} onClick={() => { clearValidation(); setSelectedDays((current) => current.includes(day) ? current.filter((value) => value !== day) : [...current, day]); }}>{day.slice(0, 1).toUpperCase()}</button>)}</div></fieldset>}
+        {frequency === "daily" && <button className="pulse-ui__button pulse-ui__weekday-preset" type="button" onClick={() => { weekdaysTouchedRef.current = true; setFrequency("weekly"); setIntervalValue("1"); setSelectedDays(["monday", "tuesday", "wednesday", "thursday", "friday"]); setEndCount(String(recurrenceDefaults.weekly)); }}>Use weekdays (Monday–Friday)</button>}
+        {frequency === "weekly" && <fieldset className="pulse-ui__weekday-fieldset"><legend>On</legend><div className="pulse-ui__weekdays" data-field="weekdays" tabIndex={-1}>{daysOfWeek.map((day) => <button key={day} type="button" aria-label={titleCase(day)} aria-pressed={selectedDays.includes(day)} onClick={() => { clearValidation(); weekdaysTouchedRef.current = true; setSelectedDays((current) => current.includes(day) ? current.filter((value) => value !== day) : [...current, day]); }}>{day.slice(0, 1).toUpperCase()}</button>)}</div></fieldset>}
         {frequency === "monthly" && <fieldset className="pulse-ui__end-options"><legend>Monthly rule</legend><label><input type="radio" name="monthly-rule" checked={monthlyRule === "dayOfMonth"} onChange={() => setMonthlyRule("dayOfMonth")} /> {monthlyLabels.dayOfMonth}</label><label><input type="radio" name="monthly-rule" checked={monthlyRule === "nthWeekday"} onChange={() => setMonthlyRule("nthWeekday")} /> {monthlyLabels.nthWeekday}</label><label><input type="radio" name="monthly-rule" checked={monthlyRule === "lastDay"} onChange={() => setMonthlyRule("lastDay")} /> {monthlyLabels.lastDay}</label></fieldset>}
-        <fieldset className="pulse-ui__end-options"><legend>Ends</legend><label><input type="radio" name="series-end" checked={endType === "count"} onChange={() => setEndType("count")} /> After <input data-field="end-count" aria-label="Number of reminders" type="number" min="1" max="365" disabled={endType !== "count"} value={endCount} onChange={(event) => setEndCount(event.target.value)} /> reminders</label><label><input type="radio" name="series-end" checked={endType === "date"} onChange={selectDateEnding} /> On <input data-field="end-date" aria-label="Series end date" type="date" disabled={endType !== "date"} value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label><small>Repeating reminders cannot run forever. The preview calculates the actual total and enforces 365 reminders or five years, whichever comes first.</small></fieldset>
+        <fieldset className="pulse-ui__end-options"><legend>Ends</legend><label><input type="radio" name="series-end" checked={endType === "count"} onChange={() => setEndType("count")} /> After <input data-field="end-count" aria-label="Number of reminders" type="number" min="1" max="365" disabled={endType !== "count"} value={endCount} onChange={(event) => setEndCount(event.target.value)} /> reminders</label><div className="pulse-ui__end-date-option"><label><input type="radio" name="series-end" checked={endType === "date"} onChange={selectDateEnding} /> On a date</label><PulseDatePicker compact label="Series end date" ariaLabel="Series end date" dataField="end-date" value={endDate} min={date} max={dateYearsAfter(date, 5)} disabled={endType !== "date"} onChange={setEndDate} /></div><small>Repeating reminders cannot run forever. The preview calculates the actual total and enforces 365 reminders or five years, whichever comes first.</small></fieldset>
         <RecurrencePreview build={buildDefinition} />
       </fieldset>}
       <div className="pulse-ui__timing-grid pulse-ui__timing-grid--single">
@@ -638,9 +672,9 @@ function ReminderEditor({ pulse, openOccurrence: activeOccurrence, renewing = fa
       </div>
       <label className="pulse-ui__field">Time zone<input data-field="timezone" aria-label="Reminder time zone" value={timezone} onChange={(event) => setTimezone(event.target.value)} /><small>Use an IANA time zone, such as America/Los_Angeles. Pulse handles daylight-saving changes.</small></label>
       {formError && <p className="pulse-ui__notice" role="alert">{formError}</p>}
-      <div className="pulse-ui__form-actions"><div>{pulse && <button className="pulse-ui__button pulse-ui__button--danger" data-action="delete-reminder" type="button" disabled={saving} onClick={() => onDelete(pulse)}>Delete reminder</button>}</div><div className="pulse-ui__form-actions-group"><button className="pulse-ui__button" type="button" disabled={saving} onClick={onCancel}>Cancel</button><button className="pulse-ui__button pulse-ui__button--primary" type="submit" disabled={saving}>{saving ? "Saving…" : pulse ? "Save changes" : "Create reminder"}</button></div></div>
+      <div className="pulse-ui__form-actions"><div>{pulse && <button className="pulse-ui__button pulse-ui__button--danger" data-action="delete-reminder" type="button" disabled={saving} onClick={() => onDelete(pulse)}>Delete reminder</button>}</div><div className="pulse-ui__form-actions-group"><button className="pulse-ui__button" type="button" disabled={saving} onClick={onCancel}>Cancel</button><button className="pulse-ui__button pulse-ui__button--primary" type="submit" disabled={saving} aria-busy={saving || undefined}>{saving ? "Saving…" : pulse ? "Save changes" : "Create reminder"}</button></div></div>
     </form>
-    {pending && <ConfirmDialog eyebrow="Schedule change" title="Update the whole reminder schedule?" description={<p>{openScheduleConsequence(pending, activeOccurrence)} Saved history stays intact.</p>} confirmLabel="Update schedule" cancelLabel="Keep editing" busy={saving} onCancel={() => setPending(null)} onConfirm={() => { void confirmPendingSchedule(); }} />}
+    {pending && <ConfirmDialog eyebrow="Schedule change" title="Update the whole reminder schedule?" description={<p>{openScheduleConsequence(pending, activeOccurrence)} Saved history stays intact.</p>} confirmLabel="Update schedule" busyLabel="Updating…" cancelLabel="Keep editing" busy={saving} onCancel={() => setPending(null)} onConfirm={() => { void confirmPendingSchedule(); }} />}
   </section>;
 }
 
@@ -697,6 +731,7 @@ function SettingsPage({ snapshot, request, workspaceRoot, onWorkspaceRootChange,
   const [currentClientId, setCurrentClientId] = useState<string | null>(null);
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
+  const [actionName, setActionName] = useState<string | null>(null);
   const actionBusyRef = useRef(false);
   useEffect(() => {
     if (!changingFolder) setNextRoot(workspaceRoot ?? "");
@@ -718,6 +753,7 @@ function SettingsPage({ snapshot, request, workspaceRoot, onWorkspaceRootChange,
     if (actionBusyRef.current) return;
     actionBusyRef.current = true;
     setActionBusy(true);
+    setActionName("create-invitation");
     setActionStatus("");
     try {
       const response = await request({ method: "POST", path: "/api/setup/clients", body: { installationId: installationId.trim() } });
@@ -727,35 +763,38 @@ function SettingsPage({ snapshot, request, workspaceRoot, onWorkspaceRootChange,
     setInvitation({ code: body.code, expiresAt: body.expiresAt });
       setActionStatus("Invitation created. It expires in ten minutes and works once.");
     } catch { setActionStatus("Pulse could not reach the runner to create an invitation."); }
-    finally { actionBusyRef.current = false; setActionBusy(false); }
+    finally { actionBusyRef.current = false; setActionBusy(false); setActionName(null); }
   };
   const revokeClient = async (clientId: string) => {
     if (actionBusyRef.current) return;
     actionBusyRef.current = true;
     setActionBusy(true);
+    setActionName(`revoke:${clientId}`);
     try {
       const response = await request({ method: "DELETE", path: `/api/setup/clients/${encodeURIComponent(clientId)}` });
       if (response.status < 200 || response.status >= 300) throw new Error("rejected");
       setActionStatus("Mac access revoked.");
       await refreshClients();
     } catch { setActionStatus("Pulse could not revoke that Mac. Try again from a connected managed installation."); }
-    finally { actionBusyRef.current = false; setActionBusy(false); }
+    finally { actionBusyRef.current = false; setActionBusy(false); setActionName(null); }
   };
   const sendTest = async () => {
     if (actionBusyRef.current) return;
     actionBusyRef.current = true;
     setActionBusy(true);
+    setActionName("send-test");
     setActionStatus("");
     try {
       const response = await request({ method: "POST", path: "/api/setup/test-notification", body: { idempotencyKey: `settings-${Date.now().toString(36)}` } });
       setActionStatus(response.status >= 200 && response.status < 300 ? "Test sent. Check your Android notifications." : "The runner could not send a test notification.");
     } catch { setActionStatus("Pulse could not reach the runner to send a test notification."); }
-    finally { actionBusyRef.current = false; setActionBusy(false); }
+    finally { actionBusyRef.current = false; setActionBusy(false); setActionName(null); }
   };
   const copyInvitation = async () => {
     if (!invitation || actionBusyRef.current) return;
     actionBusyRef.current = true;
     setActionBusy(true);
+    setActionName("copy-invitation");
     setActionStatus("");
     try {
       if (!window.navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
@@ -763,7 +802,7 @@ function SettingsPage({ snapshot, request, workspaceRoot, onWorkspaceRootChange,
       setActionStatus("Invitation code copied.");
     } catch {
       setActionStatus("Pulse could not copy the invitation code.");
-    } finally { actionBusyRef.current = false; setActionBusy(false); }
+    } finally { actionBusyRef.current = false; setActionBusy(false); setActionName(null); }
   };
   return <section className="pulse-ui__page" aria-labelledby="pulse-settings-heading"><header className="pulse-ui__page-head"><div><p className="pulse-ui__eyebrow">Connection</p><h2 id="pulse-settings-heading">Pulse settings</h2><p className="pulse-ui__lede pulse-ui__lede--wide">See how this installation reaches your private runner. Secrets remain outside the webview.</p></div></header><div className="pulse-ui__settings">
     <div className="pulse-ui__setting"><div><h3>{online ? "Runner is online" : stale ? "Runner heartbeat is stale" : "Runner status unavailable"}</h3><p>{online ? `Last checked ${formatDate(snapshot.runnerHealth?.checkedAt)}` : stale ? `The last check was ${formatDate(snapshot.runnerHealth?.checkedAt)}. Notifications may be delayed until the runner resumes.` : "Pulse has not received a current health report."}</p></div><span className={`pulse-ui__badge${online ? " pulse-ui__badge--success" : stale ? " pulse-ui__badge--warning" : ""}`}>{online ? "Online" : stale ? "Needs attention" : "Unknown"}</span></div>
@@ -774,19 +813,19 @@ function SettingsPage({ snapshot, request, workspaceRoot, onWorkspaceRootChange,
       setChangingFolder(false);
     }}><label className="pulse-ui__field">New private Pulse folder<input autoFocus aria-label="New Pulse private folder" value={nextRoot} onChange={(event) => setNextRoot(event.target.value)} /><small>Choose a different folder containing pulse.config.json. The credential remains in the macOS Keychain.</small></label><div className="pulse-ui__form-actions-group"><button className="pulse-ui__button" type="button" onClick={() => setChangingFolder(false)}>Cancel</button><button className="pulse-ui__button pulse-ui__button--primary" type="submit" disabled={!canChangeFolder}>Use this folder</button></div></form>}</div><div className="pulse-ui__setting-actions"><span className="pulse-ui__badge">Connected</span>{onMigrateConnection && <button className="pulse-ui__button pulse-ui__button--primary" type="button" onClick={onMigrateConnection}>Move to managed access</button>}{onWorkspaceRootChange && !changingFolder && <button className="pulse-ui__button" type="button" onClick={() => setChangingFolder(true)}>Change folder</button>}</div></div> : <div className="pulse-ui__setting pulse-ui__setting--folder"><div className="pulse-ui__setting-main"><h3>Managed by Workshop</h3><p>The service address is validated natively and this Mac’s revocable credential stays in Keychain.</p>{confirmingDisconnect && <div className="pulse-ui__disconnect-warning" role="group" aria-label="Confirm disconnect"><strong>This only disconnects this Mac.</strong><p>Your runner, reminders, Android delivery, provider account, and any provider billing keep running. Delete the deployment separately in your provider dashboard if you want it gone.</p><div className="pulse-ui__form-actions-group"><button className="pulse-ui__button" type="button" disabled={actionBusy} onClick={() => setConfirmingDisconnect(false)}>Keep connected</button><button className="pulse-ui__button pulse-ui__button--danger" type="button" disabled={actionBusy} onClick={() => {
       if (actionBusyRef.current || !onDisconnect) return;
-      actionBusyRef.current = true; setActionBusy(true); setActionStatus("");
-      void onDisconnect().catch(() => { setActionStatus("Pulse could not finish disconnecting. This Mac may already be revoked; reopen Pulse before retrying."); setConfirmingDisconnect(false); }).finally(() => { actionBusyRef.current = false; setActionBusy(false); });
-    }}>Disconnect this Mac</button></div></div>}</div><div className="pulse-ui__setting-actions"><span className="pulse-ui__badge">Secure</span>{onDisconnect && !confirmingDisconnect && <button className="pulse-ui__button" type="button" disabled={actionBusy} onClick={() => setConfirmingDisconnect(true)}>Disconnect this Mac</button>}</div></div>}
-    <div className="pulse-ui__setting"><div><h3>Android push through ntfy</h3><p>The notification credential is stored by your runner. Workshop stores only this Mac’s runner credential in Keychain; Pulse never receives either secret.</p></div><div className="pulse-ui__setting-actions"><button className="pulse-ui__button" type="button" disabled={actionBusy} onClick={() => void sendTest()}>Send test</button>{onRepairDelivery && <button className="pulse-ui__button" type="button" disabled={actionBusy} onClick={() => {
+      actionBusyRef.current = true; setActionBusy(true); setActionName("disconnect"); setActionStatus("");
+      void onDisconnect().catch(() => { setActionStatus("Pulse could not finish disconnecting. This Mac may already be revoked; reopen Pulse before retrying."); setConfirmingDisconnect(false); }).finally(() => { actionBusyRef.current = false; setActionBusy(false); setActionName(null); });
+    }} aria-busy={actionName === "disconnect" || undefined}>{actionName === "disconnect" ? "Disconnecting…" : "Disconnect this Mac"}</button></div></div>}</div><div className="pulse-ui__setting-actions"><span className="pulse-ui__badge">Secure</span>{onDisconnect && !confirmingDisconnect && <button className="pulse-ui__button" type="button" disabled={actionBusy} onClick={() => setConfirmingDisconnect(true)}>Disconnect this Mac</button>}</div></div>}
+    <div className="pulse-ui__setting"><div><h3>Android push through ntfy</h3><p>The notification credential is stored by your runner. Workshop stores only this Mac’s runner credential in Keychain; Pulse never receives either secret.</p></div><div className="pulse-ui__setting-actions"><button className="pulse-ui__button" type="button" disabled={actionBusy} aria-busy={actionName === "send-test" || undefined} onClick={() => void sendTest()}>{actionName === "send-test" ? "Sending…" : "Send test"}</button>{onRepairDelivery && <button className="pulse-ui__button" type="button" disabled={actionBusy} aria-busy={actionName === "repair-access" || undefined} onClick={() => {
       if (actionBusyRef.current) return;
-      actionBusyRef.current = true; setActionBusy(true); setActionStatus("");
-      void onRepairDelivery().then(() => setActionStatus("Your runner opened a fresh secure ntfy-access page.")).catch(() => setActionStatus("Pulse could not open the secure repair page.")).finally(() => { actionBusyRef.current = false; setActionBusy(false); });
-    }}>Repair access</button>}</div></div>
-    <div className="pulse-ui__setting pulse-ui__setting--folder"><div className="pulse-ui__setting-main"><h3>Add another Mac</h3><p>On the other Mac, choose Connect an existing Pulse and copy its installation id here. The invitation is bound to that Mac, expires in ten minutes, and works once.</p>{addingMac && <form className="pulse-ui__folder-editor" onSubmit={(event) => { event.preventDefault(); void createInvitation(); }}><label className="pulse-ui__field">Other Mac installation id<input aria-label="Other Mac installation id" disabled={actionBusy} value={installationId} onChange={(event) => setInstallationId(event.target.value)} required /></label>{invitation && <div className="pulse-ui__invitation"><strong>Ten-minute invitation</strong><code>{invitation.code}</code><small>Expires {formatDate(invitation.expiresAt)}</small><button className="pulse-ui__text-button" type="button" disabled={actionBusy} onClick={() => void copyInvitation()}><PulseIcon kind="copy" /> Copy invitation code</button></div>}<div className="pulse-ui__form-actions-group"><button className="pulse-ui__button" type="button" disabled={actionBusy} onClick={() => { setAddingMac(false); setInvitation(undefined); }}>Close</button><button className="pulse-ui__button pulse-ui__button--primary" type="submit" disabled={actionBusy || !installationId.trim()}>{actionBusy ? "Creating…" : "Create invitation"}</button></div></form>}</div>{!addingMac && <button className="pulse-ui__button" type="button" disabled={actionBusy} onClick={() => setAddingMac(true)}>Add a Mac</button>}</div>
-    {clients.length > 0 && <div className="pulse-ui__setting pulse-ui__setting--clients"><div className="pulse-ui__setting-main"><h3>Connected Macs</h3><p>Each installation has separate access. Revoking one does not break the others.</p><div className="pulse-ui__client-list">{clients.map((client) => <div key={client.id}><div><strong>{client.id === currentClientId ? "This Mac" : client.installationId}</strong><small>{client.revokedAt ? `Revoked ${formatDate(client.revokedAt)}` : `Connected ${formatDate(client.createdAt)}`}</small></div>{!client.revokedAt && client.id !== currentClientId && <button className="pulse-ui__button pulse-ui__button--danger" type="button" disabled={actionBusy} onClick={() => void revokeClient(client.id)}>Revoke</button>}</div>)}</div></div></div>}
+      actionBusyRef.current = true; setActionBusy(true); setActionName("repair-access"); setActionStatus("");
+      void onRepairDelivery().then(() => setActionStatus("Your runner opened a fresh secure ntfy-access page.")).catch(() => setActionStatus("Pulse could not open the secure repair page.")).finally(() => { actionBusyRef.current = false; setActionBusy(false); setActionName(null); });
+    }}>{actionName === "repair-access" ? "Opening…" : "Repair access"}</button>}</div></div>
+    <div className="pulse-ui__setting pulse-ui__setting--folder"><div className="pulse-ui__setting-main"><h3>Add another Mac</h3><p>On the other Mac, choose Connect an existing Pulse and copy its installation id here. The invitation is bound to that Mac, expires in ten minutes, and works once.</p>{addingMac && <form className="pulse-ui__folder-editor" onSubmit={(event) => { event.preventDefault(); void createInvitation(); }}><label className="pulse-ui__field">Other Mac installation id<input aria-label="Other Mac installation id" disabled={actionBusy} value={installationId} onChange={(event) => setInstallationId(event.target.value)} required /></label>{invitation && <div className="pulse-ui__invitation"><strong>Ten-minute invitation</strong><code>{invitation.code}</code><small>Expires {formatDate(invitation.expiresAt)}</small><button className="pulse-ui__text-button" type="button" disabled={actionBusy} aria-busy={actionName === "copy-invitation" || undefined} onClick={() => void copyInvitation()}><PulseIcon kind="copy" /> {actionName === "copy-invitation" ? "Copying…" : "Copy invitation code"}</button></div>}<div className="pulse-ui__form-actions-group"><button className="pulse-ui__button" type="button" disabled={actionBusy} onClick={() => { setAddingMac(false); setInvitation(undefined); }}>Close</button><button className="pulse-ui__button pulse-ui__button--primary" type="submit" disabled={actionBusy || !installationId.trim()} aria-busy={actionName === "create-invitation" || undefined}>{actionName === "create-invitation" ? "Creating…" : "Create invitation"}</button></div></form>}</div>{!addingMac && <button className="pulse-ui__button" type="button" disabled={actionBusy} onClick={() => setAddingMac(true)}>Add a Mac</button>}</div>
+    {clients.length > 0 && <div className="pulse-ui__setting pulse-ui__setting--clients"><div className="pulse-ui__setting-main"><h3>Connected Macs</h3><p>Each installation has separate access. Revoking one does not break the others.</p><div className="pulse-ui__client-list">{clients.map((client) => <div key={client.id}><div><strong>{client.id === currentClientId ? "This Mac" : client.installationId}</strong><small>{client.revokedAt ? `Revoked ${formatDate(client.revokedAt)}` : `Connected ${formatDate(client.createdAt)}`}</small></div>{!client.revokedAt && client.id !== currentClientId && <button className="pulse-ui__button pulse-ui__button--danger" type="button" disabled={actionBusy} aria-busy={actionName === `revoke:${client.id}` || undefined} onClick={() => void revokeClient(client.id)}>{actionName === `revoke:${client.id}` ? "Revoking…" : "Revoke"}</button>}</div>)}</div></div></div>}
   </div>{actionStatus && <p className="pulse-ui__notice" role="status">{actionStatus}</p>}</section>;
 }
 
 function DeleteDialog({ pulse, busy, error, onCancel, onConfirm }: { pulse: PulseDefinition; busy: boolean; error?: string; onCancel: () => void; onConfirm: () => void }): React.ReactElement {
-  return <ConfirmDialog eyebrow="Permanent action" title={`Delete “${pulse.title}”?`} description={<p>This removes the reminder from the cloud runner. Its past completion history may remain in runner state.</p>} confirmLabel="Delete reminder" cancelLabel="Keep reminder" busy={busy} error={error} onCancel={onCancel} onConfirm={onConfirm} />;
+  return <ConfirmDialog eyebrow="Permanent action" title={`Delete “${pulse.title}”?`} description={<p>This removes the reminder from the cloud runner. Its past completion history may remain in runner state.</p>} confirmLabel="Delete reminder" busyLabel="Deleting…" cancelLabel="Keep reminder" busy={busy} error={error} onCancel={onCancel} onConfirm={onConfirm} />;
 }

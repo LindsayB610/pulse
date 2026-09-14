@@ -5,6 +5,7 @@ type ConfirmDialogProps = {
   title: string;
   description: React.ReactNode;
   confirmLabel: string;
+  busyLabel?: string;
   cancelLabel: string;
   busy?: boolean;
   error?: string;
@@ -13,7 +14,7 @@ type ConfirmDialogProps = {
 };
 
 /** Accessible destructive confirmation shared by setup and reminder management. */
-export function ConfirmDialog({ eyebrow, title, description, confirmLabel, cancelLabel, busy = false, error, onCancel, onConfirm }: ConfirmDialogProps): React.ReactElement {
+export function ConfirmDialog({ eyebrow, title, description, confirmLabel, busyLabel = "Working…", cancelLabel, busy = false, error, onCancel, onConfirm }: ConfirmDialogProps): React.ReactElement {
   const backdropRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const cancelActionRef = useRef(onCancel);
@@ -77,7 +78,7 @@ export function ConfirmDialog({ eyebrow, title, description, confirmLabel, cance
       {error && <p className="pulse-ui__notice pulse-ui__notice--error" role="alert">{error}</p>}
       <div className="pulse-ui__modal-actions">
         <button ref={cancelRef} className="pulse-ui__button" type="button" disabled={busy} onClick={onCancel}>{cancelLabel}</button>
-        <button className="pulse-ui__button pulse-ui__button--danger" type="button" disabled={busy} onClick={onConfirm}>{confirmLabel}</button>
+        <button className="pulse-ui__button pulse-ui__button--danger" type="button" disabled={busy} aria-busy={busy || undefined} onClick={onConfirm}>{busy ? busyLabel : confirmLabel}</button>
       </div>
     </section>
   </div>;

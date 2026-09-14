@@ -21,8 +21,27 @@ test("a real browser resolves standalone fallbacks and a live inherited palette"
         await page.goto(`file://${htmlPath}`, { waitUntil: "load", timeout: 15_000 });
         const evidence = await page.locator("#pulse-theme-result").textContent();
         assert.ok(evidence, "browser render must publish resolved style evidence");
+        const control = page.locator(".inherited .pulse-ui__panel .pulse-ui__button").first();
+        const controlBefore = await control.evaluate((element) => getComputedStyle(element).boxShadow);
+        await control.hover();
+        await page.waitForTimeout(180);
+        const controlAfter = await control.evaluate((element) => getComputedStyle(element).boxShadow);
+        const preset = page.locator(".inherited .pulse-ui__preset:not([aria-pressed='true'])");
+        const presetBefore = await preset.evaluate((element) => getComputedStyle(element).borderTopColor);
+        await preset.hover();
+        await page.waitForTimeout(180);
+        const presetAfter = await preset.evaluate((element) => getComputedStyle(element).borderTopColor);
+        const danger = page.locator(".inherited .pulse-ui__button--danger");
+        await danger.evaluate((element) => { element.disabled = true; element.setAttribute("aria-busy", "true"); element.textContent = "Deleting…"; });
+        const busy = await danger.evaluate((element) => ({
+          cursor: getComputedStyle(element).cursor,
+          opacity: getComputedStyle(element).opacity,
+          spinnerDisplay: getComputedStyle(element, "::before").display,
+          spinnerAnimation: getComputedStyle(element, "::before").animationName,
+          label: element.textContent,
+        }));
         await page.screenshot({ path: screenshotPath });
-        return JSON.parse(evidence);
+        return { ...JSON.parse(evidence), interactions: { controlBefore, controlAfter, presetBefore, presetAfter, busy } };
       } finally {
         await page.close();
       }
@@ -65,6 +84,15 @@ test("a real browser resolves standalone fallbacks and a live inherited palette"
       hostHoverHighlight: "rgb(255, 255, 255)",
       handoffGap: 24,
       formGap: 24,
+    });
+    assert.notEqual(result.interactions.controlAfter, result.interactions.controlBefore, "button hover changes the rendered control treatment");
+    assert.notEqual(result.interactions.presetAfter, result.interactions.presetBefore, "preset hover changes the rendered border treatment");
+    assert.deepEqual(result.interactions.busy, {
+      cursor: "progress",
+      opacity: "0.78",
+      spinnerDisplay: "inline-block",
+      spinnerAnimation: "pulse-ui-spin",
+      label: "Deleting…",
     });
 
     assert.ok(statSync(screenshotPath).size > 10_000, "visual contract must produce a real browser screenshot");
@@ -196,7 +224,7 @@ function surface(kind) {
     <section class="pulse-ui__panel"><button class="pulse-ui__button">Refresh</button><button class="pulse-ui__button pulse-ui__button--primary">Save</button><button class="pulse-ui__button pulse-ui__button--danger">Delete</button></section>
     <span class="pulse-ui__badge pulse-ui__badge--due">Due</span><span class="pulse-ui__status-dot"></span>
     <label class="pulse-ui__field">Name<input value="Reminder"></label>
-    <button class="pulse-ui__preset" aria-pressed="true">30 minutes</button>
+    <button class="pulse-ui__preset" aria-pressed="true">30 minutes</button><button class="pulse-ui__preset" aria-pressed="false">1 hour</button>
     <p class="pulse-ui__notice" role="alert">Could not save</p>
     <div class="pulse-ui__existing">
       <div class="pulse-ui__done-when" data-migration-callout><span>✓</span><div><strong>Your existing data stays put</strong><p>The runner and reminders remain unchanged.</p></div></div>

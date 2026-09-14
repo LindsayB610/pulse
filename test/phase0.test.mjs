@@ -37,7 +37,7 @@ test("phase 0 required repo files exist", () => {
 
 test("phase 0 package scripts include lint, format, build, docs, and tests", () => {
   const packageJson = JSON.parse(read("package.json"));
-  assert.equal(packageJson.scripts.test, "npm run build && npm run build:plugin && npm run typecheck:netlify && node --test --test-concurrency=1 test/*.test.mjs && tsx --test test/*.test.ts");
+  assert.equal(packageJson.scripts.test, "npm run build && npm run build:plugin && npm run typecheck:netlify && node scripts/run-mjs-tests.mjs && tsx --test test/*.test.ts");
   assert.equal(packageJson.scripts.typecheck, "tsc -p tsconfig.json --noEmit");
   assert.equal(packageJson.scripts["typecheck:netlify"], "tsc -p netlify/tsconfig.json --noEmit");
   assert.match(packageJson.scripts["test:coverage"], /experimental-test-coverage/);

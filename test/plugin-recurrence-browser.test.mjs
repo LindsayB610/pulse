@@ -40,10 +40,12 @@ test("the real recurrence editor remains readable at desktop and 200% zoom under
       .find((input) => input.closest("label")?.textContent.includes("Repeat this reminder"));
     assert.equal(repeatControl.checked, false, "the rendered default is visibly one-time");
     assert.equal(dom.window.document.querySelector("#pulse-recurrence-panel"), null, "recurrence stays progressively disclosed");
+    await act(async () => { dom.window.document.querySelector("[data-field='date']").click(); });
+    const calendarMarkup = dom.window.document.querySelector("#app").innerHTML;
+    await act(async () => { [...dom.window.document.querySelectorAll("button")].find((button) => button.textContent === "Close").click(); });
     const oneTimeMarkup = dom.window.document.querySelector("#app").innerHTML;
     await act(async () => {
       setControlValue(dom.window.document.querySelector('[aria-label="Reminder name"]'), "Replace air filter");
-      setControlValue(dom.window.document.querySelector('[aria-label="Reminder date"]'), "2026-08-31");
       repeatControl.click();
       setControlValue(dom.window.document.querySelector('[aria-label="Repeat frequency"]'), "monthly");
       [...dom.window.document.querySelectorAll('input[name="monthly-rule"]')].at(-1).click();
@@ -64,8 +66,11 @@ test("the real recurrence editor remains readable at desktop and 200% zoom under
     const screenshot = join(temp, "recurrence.png");
     const oneTimeFile = join(temp, "one-time.html");
     const oneTimeScreenshot = join(temp, "one-time.png");
+    const calendarFile = join(temp, "date-picker.html");
+    const calendarScreenshot = join(temp, "date-picker.png");
     const narrowScreenshot = join(temp, "recurrence-narrow.png");
     writeFileSync(oneTimeFile, `<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;background:#000;font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}${pulseStyles}</style></head><body>${oneTimeMarkup}</body></html>`);
+    writeFileSync(calendarFile, `<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;background:#071116;font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.host{--workshop-canvas:#071116;--workshop-surface:#0d1d24;--workshop-surface-raised:#1e2d33;--workshop-border:#5f6a70;--workshop-text:#fff;--workshop-text-muted:#b7b7bd;--workshop-accent:#2bb7e8;--workshop-accent-strong:#60c8eb;--workshop-accent-warm:#62e6bd;--workshop-focus-ring:#62e6bd;--workshop-success:#56d68b;--workshop-warning:#ffd34d;--workshop-danger:#ff5a79}${pulseStyles}</style></head><body><main class="host">${calendarMarkup}</main></body></html>`);
     writeFileSync(file, `<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;background:#071116;font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.host{--workshop-canvas:#071116;--workshop-surface:#0d1d24;--workshop-surface-raised:#1e2d33;--workshop-border:#5f6a70;--workshop-text:#fff;--workshop-text-muted:#b7b7bd;--workshop-accent:#2bb7e8;--workshop-accent-strong:#60c8eb;--workshop-accent-warm:#62e6bd;--workshop-focus-ring:#62e6bd;--workshop-success:#56d68b;--workshop-warning:#ffd34d;--workshop-danger:#ff5a79}${pulseStyles}</style></head><body><main class="host">${dom.window.document.querySelector("#app").innerHTML}</main></body></html>`);
     try {
       await withHeadlessBrowser(async (browser) => {
@@ -84,6 +89,30 @@ test("the real recurrence editor remains readable at desktop and 200% zoom under
         assert.equal(standalone.recurrenceVisible, false);
         assert.notEqual(standalone.text, standalone.canvas);
         await page.screenshot({ path: oneTimeScreenshot, fullPage: true });
+
+        await page.goto(`file://${calendarFile}`, { waitUntil: "load" });
+        const calendar = await page.evaluate(() => {
+          const picker = document.querySelector(".pulse-ui__calendar");
+          const selected = document.querySelector(".pulse-ui__calendar-grid [aria-pressed='true']");
+          const pickerStyle = getComputedStyle(picker);
+          const selectedStyle = getComputedStyle(selected);
+          return {
+            documentWidth: document.documentElement.scrollWidth,
+            viewport: innerWidth,
+            pickerWidth: picker?.getBoundingClientRect().width,
+            expanded: document.querySelector(".pulse-ui__date-trigger")?.getAttribute("aria-expanded"),
+            pickerText: pickerStyle.color,
+            pickerSurface: pickerStyle.backgroundColor,
+            selectedText: selectedStyle.color,
+            selectedSurface: selectedStyle.backgroundColor,
+          };
+        });
+        assert.ok(calendar.documentWidth <= calendar.viewport, JSON.stringify(calendar));
+        assert.ok(calendar.pickerWidth >= 300, "calendar days have a comfortable desktop target area");
+        assert.equal(calendar.expanded, "true");
+        assert.notEqual(calendar.pickerText, calendar.pickerSurface);
+        assert.notEqual(calendar.selectedText, calendar.selectedSurface);
+        await page.screenshot({ path: calendarScreenshot, fullPage: true });
 
         await page.goto(`file://${file}`, { waitUntil: "load" });
         const desktop = await page.evaluate(() => ({
@@ -117,6 +146,7 @@ test("the real recurrence editor remains readable at desktop and 200% zoom under
       });
       assert.ok(statSync(screenshot).size > 10_000, "the recurrence editor produces inspectable visual evidence");
       assert.ok(statSync(oneTimeScreenshot).size > 10_000, "the one-time default produces inspectable standalone evidence");
+      assert.ok(statSync(calendarScreenshot).size > 10_000, "the open date picker produces inspectable visual evidence");
       assert.ok(statSync(narrowScreenshot).size > 10_000, "the narrow recurrence editor produces inspectable evidence");
     } finally {
       if (!retainedEvidence) rmSync(temp, { recursive: true, force: true });
