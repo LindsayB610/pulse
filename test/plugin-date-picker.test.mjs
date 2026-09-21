@@ -20,14 +20,56 @@ function installDom() {
   return { dom, previous };
 }
 
+function restoreDom(dom, previous) {
+  dom.window.close();
+  globalThis.window = previous.window;
+  globalThis.document = previous.document;
+  globalThis.CustomEvent = previous.customEvent;
+  globalThis.IS_REACT_ACT_ENVIRONMENT = previous.act;
+}
+
+function controlWindowTimers(dom, act) {
+  const scheduled = new Map();
+  const originalSetTimeout = dom.window.setTimeout;
+  const originalClearTimeout = dom.window.clearTimeout;
+  let nextTimer = -1;
+  dom.window.setTimeout = (callback, _delay, ...args) => {
+    const timer = nextTimer--;
+    scheduled.set(timer, typeof callback === "function"
+      ? () => callback(...args)
+      : () => dom.window.eval(String(callback)));
+    return timer;
+  };
+  dom.window.clearTimeout = (timer) => {
+    if (!scheduled.delete(timer)) originalClearTimeout.call(dom.window, timer);
+  };
+  return {
+    flush: async () => {
+      let passes = 0;
+      while (scheduled.size > 0) {
+        if (passes++ > 20) throw new Error("Date picker timers did not settle");
+        const callbacks = [...scheduled.values()];
+        scheduled.clear();
+        await act(async () => {
+          for (const callback of callbacks) callback();
+        });
+      }
+    },
+    restore: () => {
+      scheduled.clear();
+      dom.window.setTimeout = originalSetTimeout;
+      dom.window.clearTimeout = originalClearTimeout;
+    },
+  };
+}
+
 async function mountPicker(props = {}) {
-  const { dom, previous } = installDom();
   const React = await import("react");
-  const { act } = React;
+  const { act: reactAct } = React;
   const { createRoot } = await import("react-dom/client");
   const { PulseDatePicker } = await import("../plugin/dist/date-picker.js");
+  const { dom, previous } = installDom();
   const changes = [];
-  const root = createRoot(dom.window.document.getElementById("app"));
   const initialValue = props.value ?? "2026-09-14";
   const pickerProps = { ...props };
   delete pickerProps.value;
@@ -46,20 +88,34 @@ async function mountPicker(props = {}) {
       },
     });
   }
-  await act(async () => {
-    root.render(React.createElement(Harness));
-  });
+  let root;
+  let timers;
+  try {
+    timers = controlWindowTimers(dom, reactAct);
+    root = createRoot(dom.window.document.getElementById("app"));
+    await reactAct(async () => {
+      root.render(React.createElement(Harness));
+    });
+  } catch (error) {
+    timers?.restore();
+    restoreDom(dom, previous);
+    throw error;
+  }
   return {
-    act,
+    act: async (callback) => {
+      await reactAct(callback);
+      await timers.flush();
+    },
     changes,
     dom,
     close: async () => {
-      await act(async () => root.unmount());
-      dom.window.close();
-      globalThis.window = previous.window;
-      globalThis.document = previous.document;
-      globalThis.CustomEvent = previous.customEvent;
-      globalThis.IS_REACT_ACT_ENVIRONMENT = previous.act;
+      try {
+        await timers.flush();
+        await reactAct(async () => root.unmount());
+      } finally {
+        timers.restore();
+        restoreDom(dom, previous);
+      }
     },
   };
 }

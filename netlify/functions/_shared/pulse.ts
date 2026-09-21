@@ -20,7 +20,7 @@ import {
   type RunnerPairingProof,
   type RunnerSetupState,
 } from "../../../src/setup.js";
-import { createEmptyPulseState, createMemoryPulseStateStore, type PulseState } from "../../../src/storage.js";
+import { createEmptyPulseState, createMemoryPulseStateStore, pulseStateForSnapshot, type PulseState } from "../../../src/storage.js";
 import {
   canonicalCreateDefinition,
   canonicalUpdateDefinition,
@@ -40,6 +40,9 @@ const runnerSecretsKey = "runner-secrets.json";
 const runnerDeliverySecretKey = "runner-delivery-secret.json";
 const lockLeaseMs = 55_000;
 const maximumSetupRequestBytes = 16_384;
+// Leave room below Workshop's 64 KiB secure-service ceiling for the host's
+// response envelope rather than filling the transport to its final byte.
+const maximumSnapshotResponseBytes = 60 * 1_024;
 const notificationSetupCookie = "pulse_setup";
 
 type Lease = { owner: string; expiresAt: string };
@@ -100,9 +103,8 @@ export async function readPulseSnapshot(): Promise<PulseRunnerSnapshot> {
   const checkedAt = heartbeat?.checkedAt ? new Date(heartbeat.checkedAt) : undefined;
   const staleAfterMs = 2 * 60_000;
   const now = new Date();
-  return {
+  const snapshotBase: Omit<PulseRunnerSnapshot, "state"> = {
     pulses,
-    state,
     seriesProgress: Object.fromEntries(pulses.map((pulse) => [pulse.id, seriesProgress(pulse, state.occurrences, now)])),
     recurrenceMigration: {
       required: recurrenceMigrationRequired(pulses),
@@ -114,6 +116,31 @@ export async function readPulseSnapshot(): Promise<PulseRunnerSnapshot> {
       checkedAt: checkedAt?.toISOString() ?? now.toISOString(),
     },
   };
+  const completedCount = state.occurrences.filter((occurrence) => occurrence.state === "done").length;
+  let lower = 0;
+  let upper = completedCount;
+  let best: PulseRunnerSnapshot | undefined;
+  while (lower <= upper) {
+    const historyCount = Math.floor((lower + upper) / 2);
+    const candidate: PulseRunnerSnapshot = {
+      ...snapshotBase,
+      state: pulseStateForSnapshot(state, historyCount),
+    };
+    if (snapshotResponseBytes(candidate) <= maximumSnapshotResponseBytes) {
+      best = candidate;
+      lower = historyCount + 1;
+    } else {
+      upper = historyCount - 1;
+    }
+  }
+  if (best === undefined) {
+    throw new PulseHttpError(507, "Pulse's active reminder data exceeds the secure-service response limit.");
+  }
+  return best;
+}
+
+function snapshotResponseBytes(snapshot: PulseRunnerSnapshot): number {
+  return Buffer.byteLength(JSON.stringify(snapshot), "utf8");
 }
 
 export async function createPulseDefinition(input: unknown, now: Date = new Date()): Promise<PulseDefinition> {

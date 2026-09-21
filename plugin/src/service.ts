@@ -2,6 +2,16 @@ export type SecureServiceRequest = { method: "GET" | "POST" | "PATCH" | "DELETE"
 export type SecureServiceResponse<T> = { status: number; body: T };
 export type SecureServiceRequester = <T>(request: SecureServiceRequest) => Promise<SecureServiceResponse<T>>;
 
+export class PulseServiceError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "PulseServiceError";
+    this.status = status;
+  }
+}
+
 function pulsePath(path: string): string {
   if (!path.startsWith("/api/") || path.includes("?") || path.includes("#") || path.includes("..")) throw new Error("Pulse API paths must be relative /api/ paths.");
   return path;
@@ -20,7 +30,7 @@ function failureMessage(response: SecureServiceResponse<unknown>): string {
 
 async function checked<T>(response: Promise<SecureServiceResponse<T>>): Promise<SecureServiceResponse<T>> {
   const result = await response;
-  if (result.status < 200 || result.status >= 300) throw new Error(failureMessage(result));
+  if (result.status < 200 || result.status >= 300) throw new PulseServiceError(result.status, failureMessage(result));
   return result;
 }
 

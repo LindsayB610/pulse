@@ -130,7 +130,9 @@ test("runner automatically snoozes an unanswered notification after two minutes 
 
   assert.equal(notifier.sends.length, 1);
   assert.equal(store.read().occurrences[0].state, "due");
-  assert.equal(store.read().events.filter((event) => event.type === "notification_sent").length, 2);
+  const retainedSends = store.read().events.filter((event) => event.type === "notification_sent");
+  assert.equal(retainedSends.length, 1, "successful follow-ups retain only the latest send evidence");
+  assert.equal(retainedSends[0].at, "2026-06-28T16:32:00.000Z");
 });
 
 test("runner sends immediately when a snoozed occurrence becomes due again", async () => {
@@ -182,7 +184,9 @@ test("runner sends immediately when a snoozed occurrence becomes due again", asy
   assert.equal(notifier.sends.length, 1);
   assert.equal(store.read().occurrences[0].state, "due");
   assert.equal(store.read().events.at(-1)?.type, "notification_sent");
-  assert.equal(store.read().events.filter((event) => event.type === "notification_sent").length, 2);
+  const retainedSends = store.read().events.filter((event) => event.type === "notification_sent");
+  assert.equal(retainedSends.length, 1, "only the latest successful retry evidence is persisted");
+  assert.equal(retainedSends[0].at, "2026-06-28T16:32:00.000Z");
 });
 
 test("runner honors a pulse-specific unattended snooze duration", async () => {

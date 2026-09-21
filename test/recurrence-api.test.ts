@@ -296,7 +296,11 @@ test("delete removes open work but retains completed titled history", async () =
     const snapshot = await readPulseSnapshot();
     assert.deepEqual(snapshot.pulses, []);
     assert.deepEqual((snapshot.state as { occurrences: Array<{ id: string }> }).occurrences.map((value) => value.id), ["done"]);
-    assert.deepEqual((snapshot.state as { pendingNotificationSequenceCleanups: Array<{ sequenceId: string; titleSnapshot: string }> }).pendingNotificationSequenceCleanups, [
+    assert.equal("pendingNotificationSequenceCleanups" in snapshot.state, false);
+    const persistedState = await store.get("state.json") as {
+      pendingNotificationSequenceCleanups: Array<{ pulseId: string; occurrenceId: string; sequenceId: string; requestedAt: string; titleSnapshot: string }>;
+    };
+    assert.deepEqual(persistedState.pendingNotificationSequenceCleanups, [
       { pulseId: "once", occurrenceId: "open", sequenceId, requestedAt: "2026-08-30T09:02:00.000Z", titleSnapshot: "One-time reminder" },
     ]);
   } finally {

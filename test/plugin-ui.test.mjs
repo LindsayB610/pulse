@@ -332,6 +332,21 @@ test("production Pulse UI exposes route-specific history and settings without cr
   }
 });
 
+test("completion history renders summarized snooze totals without serialized snooze events", async () => {
+  const summarized = structuredClone(fixtureSnapshot);
+  summarized.state.occurrences = summarized.state.occurrences.map((occurrence) => occurrence.state === "done"
+    ? { ...occurrence, snoozeCount: 4 }
+    : occurrence);
+  summarized.state.events = summarized.state.events.filter((event) => event.type !== "occurrence_snoozed");
+  const mounted = await mountedPulse(summarized);
+  try {
+    await mounted.render("history");
+    assert.match(mounted.dom.window.document.body.textContent, /Completed after 4 snoozes/);
+  } finally {
+    await mounted.close();
+  }
+});
+
 test("connected settings truthfully reports the folder and changes it inline", async () => {
   const selected = [];
   const mounted = await mountedPulse(fixtureSnapshot, undefined, undefined, (root) => selected.push(root));
@@ -562,6 +577,138 @@ test("refresh and reminder toggles expose the accepted action while remaining si
     assert.equal(pause.getAttribute("aria-busy"), "true");
     await mounted.act(async () => { resolvePause({ status: 200, body: {} }); await pausePending; });
     await mounted.act(async () => { resolveRefresh({ status: 200, body: fixtureSnapshot }); });
+  } finally {
+    await mounted.close();
+  }
+});
+
+test("refresh failures explain known recovery paths without rendering host or service details", async (t) => {
+  const cases = [
+    {
+      name: "oversized history",
+      respond: async () => { throw new Error("Managed secure service response is too large. bearer live-secret-oversize"); },
+      expected: "Pulse has too much activity history to load. Update the runner, then try again.",
+      hidden: "live-secret-oversize",
+    },
+    {
+      name: "unauthorized runner",
+      respond: async () => ({ status: 401, body: { error: "tenant live-secret-auth" } }),
+      expected: "Pulse\u2019s runner rejected this Mac\u2019s access. Open Settings and reconnect Pulse.",
+      hidden: "live-secret-auth",
+    },
+    {
+      name: "missing saved credential",
+      respond: async () => { throw new Error("Secure service credential is unavailable. keychain value live-secret-keychain"); },
+      expected: "This Mac\u2019s saved Pulse access is unavailable. Open Settings and reconnect Pulse.",
+      hidden: "live-secret-keychain",
+    },
+    {
+      name: "unknown failure",
+      respond: async () => { throw new Error("database password live-secret-unknown and internal payload"); },
+      expected: "Pulse could not refresh reminders. Try again. If it keeps failing, check the runner in Settings.",
+      hidden: "live-secret-unknown",
+    },
+  ];
+
+  for (const fixture of cases) {
+    await t.test(fixture.name, async () => {
+      const mounted = await mountedPulse(fixtureSnapshot, undefined, fixture.respond);
+      try {
+        await mounted.render("reminders");
+        await waitFor(mounted.act, () => Boolean(mounted.dom.window.document.querySelector("[role='alert']")), "refresh failure becomes visible");
+        const alert = mounted.dom.window.document.querySelector("[role='alert']");
+        assert.equal(alert.textContent, fixture.expected);
+        assert.doesNotMatch(mounted.dom.window.document.body.textContent, new RegExp(fixture.hidden));
+      } finally {
+        await mounted.close();
+      }
+    });
+  }
+});
+
+test("an initial refresh failure shows an unavailable state and retry restores the real dashboard", async () => {
+  let snapshotReads = 0;
+  let resolveRetry;
+  const retryPending = new Promise((resolve) => { resolveRetry = resolve; });
+  const mounted = await mountedPulse(fixtureSnapshot, undefined, async (_entry, snapshot) => {
+    snapshotReads += 1;
+    if (snapshotReads === 1) throw new Error("Managed secure service response is too large. live-secret-initial");
+    return retryPending.then(() => ({ status: 200, body: snapshot }));
+  });
+  try {
+    await mounted.render("reminders");
+    await waitFor(mounted.act, () => /Reminders unavailable/.test(mounted.dom.window.document.body.textContent), "unavailable state becomes visible");
+    const body = mounted.dom.window.document.body.textContent;
+    assert.doesNotMatch(body, /0 saved reminders|No reminders yet|New reminder|Create your first reminder/);
+    assert.doesNotMatch(body, /live-secret-initial/);
+    const retry = [...mounted.dom.window.document.querySelectorAll("button")].find((button) => button.textContent.trim() === "Try again");
+    assert.ok(retry);
+    await mounted.act(async () => { retry.click(); retry.click(); });
+    assert.equal(snapshotReads, 2);
+    assert.equal(retry.textContent.trim(), "Trying again…");
+    assert.equal(retry.disabled, true);
+    assert.equal(retry.getAttribute("aria-busy"), "true");
+    assert.doesNotMatch(mounted.dom.window.document.body.textContent, /0 saved reminders|No reminders yet|New reminder|Create your first reminder/);
+    await mounted.act(async () => { resolveRetry(); await retryPending; });
+    await waitFor(mounted.act, () => /Water houseplants/.test(mounted.dom.window.document.body.textContent), "retry restores saved reminders");
+    assert.equal(snapshotReads, 2);
+    assert.match(mounted.dom.window.document.body.textContent, /New reminder/);
+    assert.doesNotMatch(mounted.dom.window.document.body.textContent, /Reminders unavailable/);
+  } finally {
+    await mounted.close();
+  }
+});
+
+test("exact Workshop runner failures preserve the last good snapshot and restore refresh", async (t) => {
+  const cases = [
+    { error: "Could not reach managed secure service. live-secret-reach", hidden: "live-secret-reach" },
+    { error: "Managed secure service request failed. live-secret-request", hidden: "live-secret-request" },
+  ];
+  for (const fixture of cases) {
+    await t.test(fixture.error.split(". ")[0], async () => {
+      let snapshotReads = 0;
+      const mounted = await mountedPulse(fixtureSnapshot, undefined, async (_entry, snapshot) => {
+        snapshotReads += 1;
+        if (snapshotReads === 1) return { status: 200, body: snapshot };
+        throw new Error(fixture.error);
+      });
+      try {
+        await mounted.render("reminders");
+        const refresh = [...mounted.dom.window.document.querySelectorAll("button")].find((button) => button.textContent.trim() === "Refresh");
+        await mounted.act(async () => { refresh.click(); });
+        await waitFor(mounted.act, () => Boolean(mounted.dom.window.document.querySelector("[role='alert']")), "runner failure becomes visible");
+        assert.equal(mounted.dom.window.document.querySelector("[role='alert']").textContent, "Pulse\u2019s runner did not respond. Check that it is online, then try again.");
+        assert.match(mounted.dom.window.document.body.textContent, /Water houseplants/);
+        assert.doesNotMatch(mounted.dom.window.document.body.textContent, new RegExp(fixture.hidden));
+        assert.equal(snapshotReads, 2);
+        assert.equal(refresh.textContent.trim(), "Refresh");
+        assert.equal(refresh.disabled, false);
+        assert.equal(refresh.hasAttribute("aria-busy"), false);
+      } finally {
+        await mounted.close();
+      }
+    });
+  }
+});
+
+test("a failed manual refresh restores the accessible refresh control", async () => {
+  let snapshotReads = 0;
+  const mounted = await mountedPulse(fixtureSnapshot, undefined, async (_entry, snapshot) => {
+    snapshotReads += 1;
+    if (snapshotReads === 1) return { status: 200, body: snapshot };
+    throw new Error("Secure service credential is not configured. live-secret-manual");
+  });
+  try {
+    await mounted.render("reminders");
+    const refresh = [...mounted.dom.window.document.querySelectorAll("button")].find((button) => button.textContent.trim() === "Refresh");
+    await mounted.act(async () => { refresh.click(); });
+    await waitFor(mounted.act, () => Boolean(mounted.dom.window.document.querySelector("[role='alert']")), "manual refresh failure becomes visible");
+    assert.equal(refresh.textContent.trim(), "Refresh");
+    assert.equal(refresh.disabled, false);
+    assert.equal(refresh.hasAttribute("aria-busy"), false);
+    assert.equal(snapshotReads, 2);
+    assert.equal(mounted.dom.window.document.querySelector("[role='alert']").textContent, "This Mac\u2019s saved Pulse access is unavailable. Open Settings and reconnect Pulse.");
+    assert.doesNotMatch(mounted.dom.window.document.body.textContent, /live-secret-manual/);
   } finally {
     await mounted.close();
   }

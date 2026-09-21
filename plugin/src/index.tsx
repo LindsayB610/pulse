@@ -112,6 +112,40 @@ function emptySnapshot(): PulseSnapshot {
   return { pulses: [], state: { occurrences: [], events: [] } };
 }
 
+function serviceFailureStatus(caught: unknown): number | undefined {
+  if (!caught || typeof caught !== "object") return undefined;
+  const status = (caught as { status?: unknown }).status;
+  return typeof status === "number" && Number.isInteger(status) ? status : undefined;
+}
+
+function serviceFailureDescription(caught: unknown): string {
+  if (typeof caught === "string") return caught.slice(0, 512).toLowerCase();
+  if (caught instanceof Error) return caught.message.slice(0, 512).toLowerCase();
+  if (!caught || typeof caught !== "object") return "";
+  const value = caught as { message?: unknown; error?: unknown };
+  const description = typeof value.message === "string" ? value.message : typeof value.error === "string" ? value.error : "";
+  return description.slice(0, 512).toLowerCase();
+}
+
+/** Classify only known host/service failures. Raw error prose may contain secrets and is never returned. */
+function refreshFailureMessage(caught: unknown): string {
+  const status = serviceFailureStatus(caught);
+  const description = serviceFailureDescription(caught);
+  if (/secure service response is too large|response (?:body )?(?:exceeds|exceeded).*limit/.test(description)) {
+    return "Pulse has too much activity history to load. Update the runner, then try again.";
+  }
+  if (/secure service credential is (?:unavailable|not configured|invalid)/.test(description)) {
+    return "This Mac’s saved Pulse access is unavailable. Open Settings and reconnect Pulse.";
+  }
+  if (status === 401 || status === 403 || /\b(?:unauthorized|forbidden)\b/.test(description)) {
+    return "Pulse’s runner rejected this Mac’s access. Open Settings and reconnect Pulse.";
+  }
+  if (/could not (?:reach|read) (?:managed )?secure service|(?:managed )?secure service request failed|timed? out|connection refused|could not resolve host/.test(description)) {
+    return "Pulse’s runner did not respond. Check that it is online, then try again.";
+  }
+  return "Pulse could not refresh reminders. Try again. If it keeps failing, check the runner in Settings.";
+}
+
 function readSnapshot(body: unknown): PulseSnapshot {
   if (!body || typeof body !== "object") return emptySnapshot();
   const value = body as Partial<PulseSnapshot>;
@@ -376,6 +410,7 @@ export function PulseManagementView({ request, activeRouteId = "reminders", work
   const service = useMemo(() => createPulseService(request), [request]);
   const [route, setRoute] = useState<RouteId>(normalizeRoute(activeRouteId));
   const [snapshot, setSnapshot] = useState<PulseSnapshot>(emptySnapshot());
+  const [hasLoadedSnapshot, setHasLoadedSnapshot] = useState(false);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
@@ -395,9 +430,10 @@ export function PulseManagementView({ request, activeRouteId = "reminders", work
     try {
       const response = await service.snapshot();
       setSnapshot(readSnapshot(response.body));
+      setHasLoadedSnapshot(true);
       setStatus(successMessage);
-    } catch {
-      setError("Pulse could not refresh reminders. Check the private service connection and try again.");
+    } catch (caught) {
+      setError(refreshFailureMessage(caught));
     } finally {
       setLoading(false);
     }
@@ -428,7 +464,7 @@ export function PulseManagementView({ request, activeRouteId = "reminders", work
     setRoute(next);
     setEditing(null);
     setStatus("");
-    setError("");
+    if (hasLoadedSnapshot) setError("");
     onRouteChange?.(next);
   };
   const toggle = async (pulse: PulseDefinition) => {
@@ -461,9 +497,11 @@ export function PulseManagementView({ request, activeRouteId = "reminders", work
       setDeleteError(failure);
     } finally { mutationBusyRef.current = false; setMutationBusy(false); setMutationAction(null); }
   };
+  const snapshotUnavailable = route !== "settings" && !hasLoadedSnapshot && (Boolean(error) || manualRefreshing);
   return <>
     <RouteTabs active={route} refreshing={manualRefreshing} onSelect={selectRoute} onRefresh={() => void manualRefresh()} />
-    {route === "reminders" && snapshot.recurrenceMigration?.required && !loading
+    {snapshotUnavailable && <SnapshotUnavailablePage error={error} refreshing={manualRefreshing} onRetry={() => void manualRefresh()} />}
+    {!snapshotUnavailable && (route === "reminders" && snapshot.recurrenceMigration?.required && !loading
       ? <RecurrenceMigrationPage snapshot={snapshot} onMigrate={async (classifications) => {
           await service.migrateRecurrence(classifications);
           await refresh("Reminder schedules updated.");
@@ -490,13 +528,20 @@ export function PulseManagementView({ request, activeRouteId = "reminders", work
             throw failure;
           }
         }} />
-      : <RemindersPage snapshot={snapshot} loading={loading} mutationBusy={mutationBusy} mutationAction={mutationAction} onNew={() => { setStatus(""); setError(""); setRenewing(false); setEditing("new"); }} onEdit={(pulse) => { setStatus(""); setError(""); setRenewing(false); setEditing(pulse); }} onRenew={(pulse) => { setStatus(""); setError(""); setRenewing(true); setEditing(pulse); }} onToggle={(pulse) => void toggle(pulse)} />)}
-    {route === "history" && <HistoryPage snapshot={snapshot} loading={loading} />}
-    {route === "settings" && <SettingsPage snapshot={snapshot} request={request} workspaceRoot={workspaceRoot} onWorkspaceRootChange={onWorkspaceRootChange} onRepairDelivery={onRepairDelivery} onDisconnect={onDisconnect} onMigrateConnection={onMigrateConnection} />}
-    {error && <p className="pulse-ui__notice" role="alert">{error}</p>}
-    {!error && status && <p className="pulse-ui__notice" role="status">{status}</p>}
+      : <RemindersPage snapshot={snapshot} loading={loading} mutationBusy={mutationBusy} mutationAction={mutationAction} onNew={() => { setStatus(""); setError(""); setRenewing(false); setEditing("new"); }} onEdit={(pulse) => { setStatus(""); setError(""); setRenewing(false); setEditing(pulse); }} onRenew={(pulse) => { setStatus(""); setError(""); setRenewing(true); setEditing(pulse); }} onToggle={(pulse) => void toggle(pulse)} />))}
+    {!snapshotUnavailable && route === "history" && <HistoryPage snapshot={snapshot} loading={loading} />}
+    {!snapshotUnavailable && route === "settings" && <SettingsPage snapshot={snapshot} request={request} workspaceRoot={workspaceRoot} onWorkspaceRootChange={onWorkspaceRootChange} onRepairDelivery={onRepairDelivery} onDisconnect={onDisconnect} onMigrateConnection={onMigrateConnection} />}
+    {!snapshotUnavailable && error && <p className="pulse-ui__notice" role="alert">{error}</p>}
+    {!snapshotUnavailable && !error && status && <p className="pulse-ui__notice" role="status">{status}</p>}
     {deleting && <DeleteDialog pulse={deleting} busy={mutationAction?.kind === "delete" && mutationAction.pulseId === deleting.id} error={deleteError} onCancel={() => { setDeleting(null); setDeleteError(""); }} onConfirm={() => void remove(deleting)} />}
   </>;
+}
+
+function SnapshotUnavailablePage({ error, refreshing, onRetry }: { error: string; refreshing: boolean; onRetry: () => void }): React.ReactElement {
+  return <section className="pulse-ui__page" aria-labelledby="pulse-unavailable-heading">
+    <header className="pulse-ui__page-head"><div><p className="pulse-ui__eyebrow">Reminders unavailable</p><h2 id="pulse-unavailable-heading">Pulse couldn’t load your reminders</h2><p className="pulse-ui__lede">Your saved reminders and runner were not changed.</p></div></header>
+    <div className="pulse-ui__panel pulse-ui__empty"><div className="pulse-ui__empty-mark"><PulseIcon kind="refresh" /></div>{error && <p className="pulse-ui__notice" role="alert">{error}</p>}<button className="pulse-ui__button pulse-ui__button--primary pulse-ui__button--icon" type="button" disabled={refreshing} aria-busy={refreshing || undefined} onClick={onRetry}><PulseIcon kind="refresh" /> {refreshing ? "Trying again…" : "Try again"}</button></div>
+  </section>;
 }
 
 function RecurrenceMigrationPage({ snapshot, onMigrate }: { snapshot: PulseSnapshot; onMigrate: (classifications: unknown[]) => Promise<void> }): React.ReactElement {
@@ -713,7 +758,7 @@ function HistoryPage({ snapshot, loading }: { snapshot: PulseSnapshot; loading: 
   const completed = snapshot.state.occurrences.filter((item) => item.state === "done").sort((a, b) => (b.completedAt ?? b.dueAt).localeCompare(a.completedAt ?? a.dueAt));
   return <section className="pulse-ui__page" aria-labelledby="pulse-history-heading"><header className="pulse-ui__page-head"><div><p className="pulse-ui__eyebrow">Activity</p><h2 id="pulse-history-heading">Completion history</h2><p className="pulse-ui__lede">A quiet record of what you finished and how many nudges it took.</p></div></header><div className="pulse-ui__panel">{loading ? <p className="pulse-ui__muted">Loading history…</p> : completed.length === 0 ? <div className="pulse-ui__empty"><h3>No completed reminders yet</h3><p className="pulse-ui__muted">Completed occurrences will appear here.</p></div> : completed.map((occurrence) => {
     const pulse = snapshot.pulses.find((item) => item.id === occurrence.pulseId);
-    const snoozes = snapshot.state.events.filter((event) => event.occurrenceId === occurrence.id && event.type === "occurrence_snoozed").length;
+    const snoozes = occurrence.snoozeCount ?? snapshot.state.events.filter((event) => event.occurrenceId === occurrence.id && event.type === "occurrence_snoozed").length;
     return <div className="pulse-ui__history-row" key={occurrence.id}><span className="pulse-ui__history-icon"><PulseIcon kind="check" /></span><div><strong>{pulse?.title ?? occurrence.titleSnapshot ?? occurrence.pulseId}</strong><div className="pulse-ui__history-meta">{snoozes ? `Completed after ${snoozes} snooze${snoozes === 1 ? "" : "s"}` : "Completed on the first notification"}</div></div><time className="pulse-ui__history-meta" dateTime={occurrence.completedAt ?? occurrence.dueAt}>{formatDate(occurrence.completedAt ?? occurrence.dueAt, false)}</time></div>;
   })}</div></section>;
 }

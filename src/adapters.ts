@@ -64,19 +64,26 @@ export function createNtfyNotificationAdapter(options: NtfyNotificationAdapterOp
         ? undefined
         : await options.snoozeActionUrl(input);
       const sequenceId = ntfySequenceIdForOccurrence(input.occurrence.id);
-      const response = await fetchImpl(ntfySequenceUrl(server, options.topic, sequenceId), {
+      const actions = notificationActions(
+        doneActionUrl,
+        snoozeActionUrl,
+        input.pulse.notificationPolicy?.snoozeEveryMinutes ?? 30,
+      );
+      const response = await fetchImpl(server, {
         method: "POST",
         headers: {
           ...(options.token === undefined ? {} : { authorization: `Bearer ${options.token}` }),
-          "content-type": "text/plain; charset=utf-8",
-          priority: "high",
-          tags: "bell",
-          title: `Pulse: ${input.pulse.title}`,
-          ...(doneActionUrl === undefined && snoozeActionUrl === undefined
-            ? {}
-            : { actions: notificationActions(doneActionUrl, snoozeActionUrl, input.pulse.notificationPolicy?.snoozeEveryMinutes ?? 30) }),
+          "content-type": "application/json; charset=utf-8",
         },
-        body: formatNtfyBody(input),
+        body: JSON.stringify({
+          topic: options.topic,
+          message: formatNtfyBody(input),
+          title: `Pulse: ${input.pulse.title}`,
+          priority: 5,
+          tags: ["bell"],
+          sequence_id: sequenceId,
+          ...(actions.length === 0 ? {} : { actions }),
+        }),
       });
 
       if (!response.ok) {
@@ -132,11 +139,33 @@ export function createNotificationDispatcherFromEnv(
   throw new Error(`Unsupported PULSE_NOTIFY_PROVIDER: ${provider}`);
 }
 
-function notificationActions(doneActionUrl: string | undefined, snoozeActionUrl: string | undefined, snoozeEveryMinutes: number): string {
+type NtfyHttpAction = {
+  action: "http";
+  label: string;
+  url: string;
+  method: "POST";
+  clear: true;
+};
+
+function notificationActions(
+  doneActionUrl: string | undefined,
+  snoozeActionUrl: string | undefined,
+  snoozeEveryMinutes: number,
+): NtfyHttpAction[] {
   return [
-    ...(doneActionUrl === undefined ? [] : [`http, Mark done, ${doneActionUrl}, method=POST, clear=true`]),
-    ...(snoozeActionUrl === undefined ? [] : [`http, Snooze ${formatSnoozeDuration(snoozeEveryMinutes)}, ${snoozeActionUrl}, method=POST, clear=true`]),
-  ].join("; ");
+    ...(doneActionUrl === undefined
+      ? []
+      : [{ action: "http", label: "Mark done", url: doneActionUrl, method: "POST", clear: true } satisfies NtfyHttpAction]),
+    ...(snoozeActionUrl === undefined
+      ? []
+      : [{
+        action: "http",
+        label: `Snooze ${formatSnoozeDuration(snoozeEveryMinutes)}`,
+        url: snoozeActionUrl,
+        method: "POST",
+        clear: true,
+      } satisfies NtfyHttpAction]),
+  ];
 }
 
 function formatSnoozeDuration(minutes: number): string {

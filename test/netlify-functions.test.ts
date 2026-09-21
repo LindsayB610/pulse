@@ -55,15 +55,16 @@ test("Netlify functions use authenticated Blob-backed definitions and preserve c
     PULSE_NTFY_TOKEN: "test-notification-token",
   });
   delete process.env.PULSE_NOTIFICATION_ACTION_SECRET;
-  setPulseBlobStoreForTest(new MemoryBlobStore());
+  const blobStore = new MemoryBlobStore();
+  setPulseBlobStoreForTest(blobStore);
   const originalFetch = globalThis.fetch;
-  const deliveries: Array<{ url: string; method: string; actions: string; authorization: string }> = [];
+  const deliveries: Array<{ url: string; method: string; body: string; authorization: string }> = [];
   let deleteFailuresRemaining = 1;
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     deliveries.push({
       url: String(url),
       method: String(init?.method ?? "GET"),
-      actions: String((init?.headers as Record<string, string>)?.actions ?? ""),
+      body: String(init?.body ?? ""),
       authorization: String((init?.headers as Record<string, string>)?.authorization ?? ""),
     });
     if (init?.method === "DELETE" && deleteFailuresRemaining > 0) {
@@ -101,10 +102,12 @@ test("Netlify functions use authenticated Blob-backed definitions and preserve c
     const due = afterRun.state.occurrences.find((occurrence: { state: string }) => occurrence.state === "due");
     assert.equal(afterRun.runnerHealth.checkedAt, "2026-08-09T16:50:00.000Z");
     assert.equal(deliveries.length, 1);
-    assert.match(deliveries[0]?.url ?? "", /^https:\/\/ntfy\.test\/test-topic\/pulse-[A-Za-z0-9_-]+$/);
-    assert.match(deliveries[0]?.actions ?? "", /Mark done/);
-    const doneUrl = new URL((deliveries[0]?.actions.match(/http, Mark done, ([^,]+),/) ?? [])[1]);
-    const snoozeUrl = new URL((deliveries[0]?.actions.match(/http, Snooze[^,]*, ([^,]+),/) ?? [])[1]);
+    assert.equal(deliveries[0]?.url, "https://ntfy.test");
+    const deliveryPayload = JSON.parse(deliveries[0]?.body ?? "{}") as { topic?: string; sequence_id?: string; actions?: Array<{ label?: string; url?: string }> };
+    assert.equal(deliveryPayload.topic, "test-topic");
+    assert.match(deliveryPayload.sequence_id ?? "", /^pulse-[A-Za-z0-9_-]+$/);
+    const doneUrl = new URL(deliveryPayload.actions?.find((action) => action.label === "Mark done")?.url ?? "");
+    const snoozeUrl = new URL(deliveryPayload.actions?.find((action) => action.label?.startsWith("Snooze"))?.url ?? "");
     const snoozed = await snoozeNotificationHandler(new Request(snoozeUrl, { method: "POST" }), { params: { id: encodeURIComponent(due.id) } } as never);
     assert.equal(snoozed.status, 200);
     const snoozedOccurrence = (await snoozed.json()).occurrence;
@@ -117,18 +120,20 @@ test("Netlify functions use authenticated Blob-backed definitions and preserve c
     const completedBody = await completed.json();
     assert.equal(completedBody.occurrence.state, "done");
     assert.equal(completedBody.notificationCleanup, "pending");
-    assert.deepEqual(deliveries[1], { url: deliveries[0]?.url, method: "DELETE", actions: "", authorization: "Bearer test-notification-token" });
+    assert.deepEqual(deliveries[1], { url: `https://ntfy.test/test-topic/${deliveryPayload.sequence_id}`, method: "DELETE", body: "", authorization: "Bearer test-notification-token" });
 
     const afterFailedCleanup = await readPulseSnapshot();
     assert.equal(afterFailedCleanup.state.occurrences.find((occurrence: { id: string }) => occurrence.id === due.id)?.state, "done", "cleanup failure must never roll back completion");
-    const failedCleanup = [...afterFailedCleanup.state.events].reverse().find((event: { type: string }) => event.type === "notification_sequence_cleanup");
+    const failedCleanupState = await blobStore.get("state.json") as { events: Array<{ type: string; at: string; metadata?: { ok?: boolean } }> };
+    const failedCleanup = [...failedCleanupState.events].reverse().find((event) => event.type === "notification_sequence_cleanup");
     assert.equal(failedCleanup?.metadata?.ok, false);
     await runScheduledPulseTick(new Date(Date.parse(failedCleanup.at) + 5 * 60_000));
-    assert.deepEqual(deliveries[2], { url: deliveries[0]?.url, method: "DELETE", actions: "", authorization: "Bearer test-notification-token" });
-    const afterCleanupRetry = await readPulseSnapshot();
-    assert.equal(afterCleanupRetry.state.events.some((event: { type: string; metadata?: { ok?: boolean } }) => event.type === "notification_sequence_cleanup" && event.metadata?.ok === true), true);
+    assert.deepEqual(deliveries[2], { url: `https://ntfy.test/test-topic/${deliveryPayload.sequence_id}`, method: "DELETE", body: "", authorization: "Bearer test-notification-token" });
+    const afterCleanupRetrySnapshot = await readPulseSnapshot();
+    const afterCleanupRetry = await blobStore.get("state.json") as { events: Array<{ type: string; metadata?: { ok?: boolean } }> };
+    assert.equal(afterCleanupRetry.events.some((event) => event.type === "notification_sequence_cleanup" && event.metadata?.ok === true), true);
 
-    const beforeScheduleEdit = afterCleanupRetry.state.occurrences.find((occurrence: { pulseId: string; state: string }) => occurrence.pulseId === "second" && occurrence.state === "scheduled");
+    const beforeScheduleEdit = afterCleanupRetrySnapshot.state.occurrences.find((occurrence: { pulseId: string; state: string }) => occurrence.pulseId === "second" && occurrence.state === "scheduled");
     assert.equal(beforeScheduleEdit?.dueAt, "2026-08-16T16:30:00.000Z");
     await updatePulseDefinition("second", {
       ...basePulse("second", 1440),

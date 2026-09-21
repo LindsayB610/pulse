@@ -78,11 +78,74 @@ test("ntfy adapter sends a private topic notification with the due state", async
   assert.equal(result.ok, true);
   assert.equal(result.detail, "sent");
   assert.match(result.sequenceId, /^pulse-[A-Za-z0-9_-]+$/);
-  assert.match(requests[0].url, /^https:\/\/ntfy\.sh\/private-pulse-topic\/pulse-[A-Za-z0-9_-]+$/);
+  assert.equal(requests[0].url, "https://ntfy.sh");
   assert.equal(requests[0].init.headers.authorization, "Bearer private-token");
-  assert.equal(requests[0].init.headers.title, "Pulse: Weekly demo check");
-  assert.equal(requests[0].init.headers.priority, "high");
-  assert.match(requests[0].init.body, /Mark Done to stop reminders/);
+  assert.equal(requests[0].init.headers["content-type"], "application/json; charset=utf-8");
+  const payload = JSON.parse(requests[0].init.body);
+  assert.equal(payload.topic, "private-pulse-topic");
+  assert.equal(payload.title, "Pulse: Weekly demo check");
+  assert.equal(payload.priority, 5);
+  assert.deepEqual(payload.tags, ["bell"]);
+  assert.equal(payload.sequence_id, result.sequenceId);
+  assert.match(payload.message, /Mark Done to stop reminders/);
+});
+
+test("ntfy publishes Unicode titles through its JSON body instead of HTTP headers", async () => {
+  const requests = [];
+  const unicodePulse = {
+    ...pulse,
+    title: "Lucas’s homework 📚",
+    notificationPolicy: { ...pulse.notificationPolicy, snoozeEveryMinutes: 30 },
+  };
+  const adapter = createNtfyNotificationAdapter({
+    topic: "private-pulse-topic",
+    token: "private-token",
+    doneActionUrl: async () => "https://pulse.example.test/done",
+    snoozeActionUrl: async () => "https://pulse.example.test/snooze",
+    fetch: async (url, init) => {
+      requests.push({ url, init });
+      return { ok: true, status: 200 };
+    },
+  });
+
+  const result = await adapter.send({
+    channel: "ntfy",
+    pulse: unicodePulse,
+    occurrence,
+    now: new Date("2026-06-28T16:00:00.000Z"),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, "https://ntfy.sh");
+  assert.deepEqual(requests[0].init.headers, {
+    authorization: "Bearer private-token",
+    "content-type": "application/json; charset=utf-8",
+  });
+  assert.deepEqual(JSON.parse(requests[0].init.body), {
+    topic: "private-pulse-topic",
+    message: "Pulse due: Lucas’s homework 📚\nDue: 2026-06-28T16:00:00.000Z\nMark Done to stop reminders.",
+    title: "Pulse: Lucas’s homework 📚",
+    priority: 5,
+    tags: ["bell"],
+    sequence_id: result.sequenceId,
+    actions: [
+      {
+        action: "http",
+        label: "Mark done",
+        url: "https://pulse.example.test/done",
+        method: "POST",
+        clear: true,
+      },
+      {
+        action: "http",
+        label: "Snooze 30 min",
+        url: "https://pulse.example.test/snooze",
+        method: "POST",
+        clear: true,
+      },
+    ],
+  });
 });
 
 test("ntfy uses one isolated sequence for an occurrence and deletes only that sequence", async () => {
@@ -98,13 +161,14 @@ test("ntfy uses one isolated sequence for an occurrence and deletes only that se
   await adapter.send({ channel: "ntfy", pulse, occurrence: { ...occurrence, snoozeCount: 1 }, now: new Date("2026-06-28T16:30:00.000Z") });
   await adapter.send({ channel: "ntfy", pulse, occurrence: otherOccurrence, now: new Date("2026-07-05T16:00:00.000Z") });
 
-  assert.equal(requests[0].url, requests[1].url, "snoozes must update the original occurrence sequence");
-  assert.notEqual(requests[0].url, requests[2].url, "another occurrence must have its own sequence");
+  const sentPayloads = requests.map((request) => JSON.parse(request.init.body));
+  assert.equal(sentPayloads[0].sequence_id, sentPayloads[1].sequence_id, "snoozes must update the original occurrence sequence");
+  assert.notEqual(sentPayloads[0].sequence_id, sentPayloads[2].sequence_id, "another occurrence must have its own sequence");
   assert.equal(typeof adapter.deleteOccurrenceSequence, "function");
-  const persistedSequenceId = requests[0].url.split("/").at(-1);
+  const persistedSequenceId = sentPayloads[0].sequence_id;
   await adapter.deleteOccurrenceSequence({ occurrence, sequenceId: persistedSequenceId, now: new Date("2026-06-28T16:31:00.000Z") });
   assert.deepEqual(requests[3], {
-    url: requests[0].url,
+    url: `https://ntfy.sh/private-pulse-topic/${persistedSequenceId}`,
     init: {
       method: "DELETE",
       headers: { authorization: "Bearer private-token" },
@@ -132,10 +196,22 @@ test("ntfy due notifications include one-tap Done and Snooze actions when config
 
   await adapter.send({ channel: "ntfy", pulse, occurrence, now: new Date("2026-06-28T16:00:00.000Z") });
 
-  assert.equal(
-    requests[0].init.headers.actions,
-    "http, Mark done, https://pulse.example.test/api/v1/notification-actions/weekly-demo-check%3A2026-06-28T16%3A00%3A00.000Z/done?token=one-time-proof, method=POST, clear=true; http, Snooze 30 min, https://pulse.example.test/api/v1/notification-actions/weekly-demo-check%3A2026-06-28T16%3A00%3A00.000Z/snooze?token=snooze-proof, method=POST, clear=true",
-  );
+  assert.deepEqual(JSON.parse(requests[0].init.body).actions, [
+    {
+      action: "http",
+      label: "Mark done",
+      url: "https://pulse.example.test/api/v1/notification-actions/weekly-demo-check%3A2026-06-28T16%3A00%3A00.000Z/done?token=one-time-proof",
+      method: "POST",
+      clear: true,
+    },
+    {
+      action: "http",
+      label: "Snooze 30 min",
+      url: "https://pulse.example.test/api/v1/notification-actions/weekly-demo-check%3A2026-06-28T16%3A00%3A00.000Z/snooze?token=snooze-proof",
+      method: "POST",
+      clear: true,
+    },
+  ]);
 });
 
 test("ntfy Snooze action label reflects the pulse-specific duration", async () => {
@@ -154,7 +230,10 @@ test("ntfy Snooze action label reflects the pulse-specific duration", async () =
     now: new Date("2026-06-28T16:00:00.000Z"),
   });
 
-  assert.match(requests[0].init.headers.actions, /Snooze 1 day/);
+  assert.deepEqual(
+    JSON.parse(requests[0].init.body).actions.map((action) => action.label),
+    ["Mark done", "Snooze 1 day"],
+  );
 });
 
 test("notification action routes decode the occurrence ID before signature verification", () => {
@@ -198,7 +277,8 @@ test("adapter failures are recorded and retried after five minutes", async () =>
 
   const events = store.read().events.filter((event) => event.type === "notification_sent");
   assert.equal(attempts, 2);
-  assert.equal(events.length, 2);
+  assert.equal(events.length, 1, "equivalent failures collapse to the latest retry evidence");
+  assert.equal(events[0].at, "2026-06-28T16:05:00.000Z");
   assert.equal(events[0].metadata.ok, false);
   assert.equal(events[0].metadata.detail, "ntfy unavailable");
 });

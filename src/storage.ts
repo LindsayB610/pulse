@@ -90,7 +90,7 @@ export function createJsonPulseStateStore(statePath: string): PulseStateStore {
     write(state) {
       mkdirSync(dirname(resolvedPath), { recursive: true });
       const temporaryPath = `${resolvedPath}.${process.pid}.tmp`;
-      writeFileSync(temporaryPath, `${JSON.stringify(parsePulseState(state), null, 2)}\n`);
+      writeFileSync(temporaryPath, `${JSON.stringify(compactPulseState(state), null, 2)}\n`);
       renameSync(temporaryPath, resolvedPath);
     },
     async withExclusive(operation) {
@@ -105,7 +105,7 @@ export function createJsonPulseStateStore(statePath: string): PulseStateStore {
 }
 
 export function createMemoryPulseStateStore(initialState: PulseState = createEmptyPulseState()): PulseStateStore {
-  let state = parsePulseState(initialState);
+  let state = compactPulseState(initialState);
   let exclusive = Promise.resolve();
 
   return {
@@ -113,7 +113,7 @@ export function createMemoryPulseStateStore(initialState: PulseState = createEmp
       return parsePulseState(JSON.parse(JSON.stringify(state)));
     },
     write(nextState) {
-      state = parsePulseState(nextState);
+      state = compactPulseState(nextState);
     },
     withExclusive(operation) {
       const next = exclusive.then(operation, operation);
@@ -124,6 +124,93 @@ export function createMemoryPulseStateStore(initialState: PulseState = createEmp
       return next;
     },
   };
+}
+
+/**
+ * Retain the event evidence the runner actually consumes while collapsing
+ * repeated delivery attempts. Notification retries can otherwise append the
+ * same provider failure every five minutes forever.
+ */
+export function compactPulseState(input: PulseState): PulseState {
+  const state = parsePulseState(input);
+  const retainedIndexes = new Set<number>();
+  const latestByKey = new Map<string, { index: number; at: number }>();
+
+  for (const [index, event] of state.events.entries()) {
+    if (event.type === "occurrence_snoozed") {
+      retainedIndexes.add(index);
+      continue;
+    }
+    const key = compactionKey(event);
+    const at = Date.parse(event.at);
+    const current = latestByKey.get(key);
+    if (current === undefined || at >= current.at) latestByKey.set(key, { index, at });
+  }
+  for (const { index } of latestByKey.values()) retainedIndexes.add(index);
+
+  return {
+    ...state,
+    events: state.events.filter((_event, index) => retainedIndexes.has(index)),
+  };
+}
+
+/**
+ * The management UI needs occurrence summaries, not the runner's audit ledger
+ * or pending cleanup queue. Recurrence calculations must use the full stored
+ * state before this projection is applied.
+ */
+export function pulseStateForSnapshot(
+  input: PulseState,
+  completedHistoryLimit: number,
+): PulseState {
+  if (!Number.isInteger(completedHistoryLimit) || completedHistoryLimit < 0) {
+    throw new Error("Pulse snapshot history limit must be a non-negative integer.");
+  }
+  const state = compactPulseState(input);
+  const snoozeCounts = new Map<string, number>();
+  for (const event of state.events) {
+    if (event.type !== "occurrence_snoozed" || event.occurrenceId === undefined) continue;
+    snoozeCounts.set(event.occurrenceId, (snoozeCounts.get(event.occurrenceId) ?? 0) + 1);
+  }
+  const completedIds = new Set(
+    state.occurrences
+      .filter((occurrence) => occurrence.state === "done")
+      .sort((left, right) => Date.parse(right.completedAt ?? right.dueAt) - Date.parse(left.completedAt ?? left.dueAt))
+      .slice(0, completedHistoryLimit)
+      .map((occurrence) => occurrence.id),
+  );
+  const retainedOccurrenceIds = new Set(
+    state.occurrences
+      .filter((occurrence) => occurrence.state !== "done" || completedIds.has(occurrence.id))
+      .map((occurrence) => occurrence.id),
+  );
+
+  return {
+    version: state.version,
+    occurrences: state.occurrences
+      .filter((occurrence) => retainedOccurrenceIds.has(occurrence.id))
+      .map((occurrence) => {
+        const snoozeCount = Math.max(occurrence.snoozeCount ?? 0, snoozeCounts.get(occurrence.id) ?? 0);
+        return snoozeCount > 0 ? { ...occurrence, snoozeCount } : occurrence;
+      }),
+    events: [],
+  };
+}
+
+function compactionKey(event: PulseEvent): string {
+  const occurrence = event.occurrenceId ?? `pulse:${event.pulseId}`;
+  if (event.type === "notification_sent") {
+    const channel = typeof event.metadata?.channel === "string" ? event.metadata.channel : "unknown";
+    const result = event.metadata?.ok === false ? "failure" : "success";
+    const sequenced = result === "success" && isPulseNtfySequenceId(event.metadata?.sequenceId) ? ":sequenced" : "";
+    return `${occurrence}:${event.type}:${channel}:${result}${sequenced}`;
+  }
+  if (event.type === "notification_sequence_cleanup") {
+    const sequenceId = isPulseNtfySequenceId(event.metadata?.sequenceId) ? event.metadata.sequenceId : "unknown";
+    const result = event.metadata?.ok === true ? "success" : "failure";
+    return `${occurrence}:${event.type}:${sequenceId}:${result}`;
+  }
+  return `${occurrence}:${event.type}`;
 }
 
 async function acquireFileLock(lockPath: string): Promise<void> {
