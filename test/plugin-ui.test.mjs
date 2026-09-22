@@ -145,6 +145,19 @@ test("mounted production Pulse UI renders a truthful management dashboard and cr
   }
 });
 
+test("refresh controls use a complete, recognisable rotation glyph", async () => {
+  const mounted = await mountedPulse();
+  try {
+    await mounted.render("reminders");
+    const refresh = [...mounted.dom.window.document.querySelectorAll("button")].find((button) => button.textContent.trim() === "Refresh");
+    assert.ok(refresh);
+    const paths = [...refresh.querySelectorAll("svg path")].map((path) => path.getAttribute("d"));
+    assert.deepEqual(paths, ["M3 12a9 9 0 1 0 3-6.7", "M3 4v5h5"]);
+  } finally {
+    await mounted.close();
+  }
+});
+
 test("recurrence is explicit, progressively disclosed, and always bounded", async () => {
   const mounted = await mountedPulse();
   try {
